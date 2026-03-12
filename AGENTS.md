@@ -3,106 +3,80 @@
 ## What is flow-walker
 
 flow-walker is the **flow layer** — it discovers, executes, and reports on app flows.
-It is NOT a replacement for agent-flutter or agent-swift. Those are **transport layers** that control specific platforms. flow-walker uses them as pluggable backends.
+It uses [agent-flutter](https://github.com/beastoin/agent-flutter) and [agent-swift](https://github.com/beastoin/agent-swift) as **transport layers** that control specific platforms.
 
-Currently uses [agent-flutter](https://github.com/beastoin/agent-flutter) as transport.
-Planned: [agent-swift](https://github.com/beastoin/agent-swift) for Omi desktop app on macOS.
-
-**Three commands:**
+**Four commands:**
 - `walk` — BFS-explore the app, discover screens, generate YAML flows
 - `run` — Execute a YAML flow, produce run.json + video + screenshots
 - `report` — Generate self-contained HTML report from run results
+- `schema` — Machine-readable command introspection (agent discovery)
+
+## Agent-first workflow
+
+```bash
+# 1. Discover available commands
+flow-walker schema                    # → { version, commands: [...] }
+flow-walker schema run                # → args, flags with types, exit codes
+
+# 2. Dry-run to verify flow resolves
+flow-walker run flow.yaml --dry-run   # → per-step resolved/unresolved + reasons
+
+# 3. Execute
+flow-walker run flow.yaml --json      # → run.json with unique run ID
+
+# 4. Report
+flow-walker report ./run-output/<run-id>/
+```
 
 ## Prerequisites
 
 1. **agent-flutter** installed and in PATH (`npm install -g agent-flutter-cli`)
-2. Flutter app running via `flutter run` with Marionette initialized
+2. Flutter app running with Marionette initialized
 3. ADB connected (Android) or Simulator running (iOS)
 4. Run `agent-flutter doctor` to verify setup
+
+## Run IDs
+
+Every `flow-walker run` generates a unique **10-char base64url ID** (e.g. `25h7afGwBK`).
+
+- Output goes to `<output-dir>/<run-id>/` — multiple runs never overwrite
+- `run.json` includes `"id": "25h7afGwBK"` as top-level field
+- Agents can correlate runs by ID across logs, reports, and API calls
+- Composite key `{flow}/{id}` (e.g. `tab-navigation/25h7afGwBK`) for human reference
 
 ## Canonical workflows
 
 ### Auto-explore an app
 
 ```bash
-# 1. Connect agent-flutter
 agent-flutter connect ws://127.0.0.1:38047/abc=/ws
-
-# 2. Walk the app
 flow-walker walk --skip-connect --max-depth 3 --output-dir ./flows/
-
 # Output: YAML flows + _nav-graph.json
 ```
 
 ### Execute a flow
 
 ```bash
-# 1. Run flow (connects to agent-flutter automatically)
-flow-walker run flows/tab-navigation.yaml \
-  --output-dir ./results/ \
-  --agent-flutter-path agent-flutter
-
-# Output: run.json, recording.mp4, step-*.png, device.log
+flow-walker run flows/tab-navigation.yaml --output-dir ./results/
+# => Run ID: 25h7afGwBK
+# => Output: ./results/25h7afGwBK/run.json, recording.mp4, step-*.png, device.log
 ```
 
 ### Generate report
 
 ```bash
-# 2. Generate HTML viewer
-flow-walker report ./results/
-
-# Output: results/report.html (self-contained, can be shared)
+flow-walker report ./results/25h7afGwBK/
+# Output: report.html (self-contained, can be shared)
 ```
 
-### CI pipeline (typical)
+### Run a flow suite
 
 ```bash
-# Walk → Run → Report in sequence
-flow-walker walk --app-uri ws://... --output-dir ./flows/ --json
-flow-walker run ./flows/home-navigation.yaml --output-dir ./run-1/ --json
-flow-walker report ./run-1/
-# Exit code: 0 = all pass, 1 = any fail, 2 = error
+for flow in flows/*.yaml; do
+  flow-walker run "$flow" --output-dir ./results/ --json
+done
+# Each run gets its own subdirectory by run ID
 ```
-
-## Walk: how exploration works
-
-```
-[start] → snapshot home screen → fingerprint
-                ↓
-        for each interactive element:
-            press → snapshot → fingerprint new screen?
-                ↓ yes              ↓ no
-            queue children     skip (already visited)
-                ↓
-            back() → verify return to parent
-                ↓
-            next element
-```
-
-**Screen fingerprinting:** Hash of element type/count pairs. Text is ignored (dynamic).
-Count bucketing ensures small variations (list items loading) don't create duplicates.
-
-**Safety:** Elements matching blocklist keywords (delete, sign out, logout, reset, remove, unpair) are skipped.
-
-**Depth control:** `--max-depth` limits BFS recursion. Default 5.
-
-**Output per screen:**
-- `screen-<name>.yaml` — YAML flow to reach and verify that screen
-- `_nav-graph.json` — Full navigation graph (nodes + edges)
-
-## Run: how execution works
-
-Each YAML step is executed sequentially:
-
-1. **Snapshot** current screen via agent-flutter
-2. **Resolve** target element (by ref, type, position, or bottom_nav_tab index)
-3. **Execute** action (press, scroll, fill, back)
-4. **Wait** for transition (configurable delay)
-5. **Re-snapshot** to get new element state
-6. **Assert** conditions if specified (interactive_count, bottom_nav_tabs)
-7. **Screenshot** if requested
-
-**Error handling:** If a step fails, it's marked FAIL and execution continues to remaining steps.
 
 ## Output shapes
 
@@ -110,18 +84,20 @@ Each YAML step is executed sequentially:
 
 ```json
 {
+  "id": "25h7afGwBK",
   "flow": "tab-navigation",
   "device": "Pixel_7a",
   "startedAt": "2026-03-12T10:00:00Z",
-  "duration": 78300,
+  "duration": 14200,
   "result": "pass",
   "steps": [
     {
+      "index": 0,
       "name": "Verify home tab",
       "action": "assert",
       "status": "pass",
       "timestamp": 0,
-      "duration": 12431,
+      "duration": 2300,
       "elementCount": 22,
       "screenshot": "step-1-tab-home.png",
       "assertion": {
@@ -148,13 +124,36 @@ Each YAML step is executed sequentially:
 }
 ```
 
-## Exit codes
+### Schema envelope (from schema)
 
-| Code | Meaning |
-|------|---------|
-| `0` | Success (walk complete, all flow steps pass) |
-| `1` | Flow has failing steps (run command) |
-| `2` | Error (invalid args, file not found, device error) |
+```json
+{
+  "version": "0.1.0",
+  "commands": [
+    {
+      "name": "run",
+      "description": "Execute a YAML flow...",
+      "args": [{ "name": "flow", "required": true, "type": "path", "description": "..." }],
+      "flags": [{ "name": "--json", "type": "boolean", "description": "..." }],
+      "exitCodes": { "0": "all steps pass", "1": "one or more steps fail", "2": "error" },
+      "examples": ["flow-walker run flows/tab-navigation.yaml"]
+    }
+  ]
+}
+```
+
+### Structured error (on failure)
+
+```json
+{
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "Path contains traversal sequences",
+    "hint": "Remove .. from path",
+    "diagnosticId": "a1b2c3d4"
+  }
+}
+```
 
 ## YAML flow format
 
@@ -172,73 +171,41 @@ steps:
     press: { type: button, position: rightmost }
     assert:
       interactive_count: { min: 20 }
+      has_type: { type: switch, min: 2 }
     screenshot: label
 ```
 
 ### Press targets
 
-| Target | Syntax | Description |
-|--------|--------|-------------|
-| By ref | `{ ref: "@e3" }` | Direct element reference |
-| By type | `{ type: button }` | First element of type |
-| By position | `{ type: button, position: rightmost }` | Positional (leftmost/rightmost) |
-| By nav tab | `{ bottom_nav_tab: 0 }` | Bottom nav tab by index (0-based, left to right) |
+| Target | Syntax |
+|--------|--------|
+| By ref | `{ ref: "@e3" }` |
+| By type | `{ type: button }` |
+| By position | `{ type: button, position: rightmost }` |
+| By nav tab | `{ bottom_nav_tab: 0 }` |
 
 ### Assertions
 
-| Assertion | Syntax | Description |
-|-----------|--------|-------------|
-| Element count | `interactive_count: { min: 20 }` | Minimum interactive elements on screen |
-| Nav tabs | `bottom_nav_tabs: { min: 4 }` | Minimum bottom navigation tabs |
+| Assertion | Syntax |
+|-----------|--------|
+| Element count | `interactive_count: { min: 20 }` |
+| Nav tabs | `bottom_nav_tabs: { min: 4 }` |
+| Element type | `has_type: { type: switch, min: 2 }` |
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Flow has failing steps |
+| `2` | Error (invalid args, file not found, device error) |
 
 ## Environment variables
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
+| `FLOW_WALKER_OUTPUT_DIR` | Default output directory | `./run-output/` |
+| `FLOW_WALKER_AGENT_PATH` | Path to agent-flutter binary | `agent-flutter` |
+| `FLOW_WALKER_DRY_RUN` | Enable dry-run mode | `0` |
+| `FLOW_WALKER_JSON` | Force JSON output | auto (TTY detection) |
 | `AGENT_FLUTTER_DEVICE` | ADB device ID | auto-detect |
-| `ANDROID_ADB_SERVER_ADDRESS` | Remote ADB server host | localhost |
-| `ANDROID_ADB_SERVER_PORT` | Remote ADB server port | 5037 |
-
-## Relationship to agent-flutter / agent-swift
-
-flow-walker is the **flow layer**. agent-flutter and agent-swift are **transport layers**:
-
-```
-flow-walker (flow layer: explore + execute + report)
-    ↓ pluggable transport
-agent-flutter (Flutter apps: connect + snapshot + press + scroll + fill + back)
-agent-swift   (native macOS/iOS: planned)
-    ↓
-VM Service / XCTest (platform-specific)
-```
-
-flow-walker never accesses VM Service or ADB directly.
-All device interaction goes through the transport CLI.
-The same YAML flows work across transports — only the backend changes.
-
-## Recipes
-
-### Discover flows for a new app
-
-```bash
-agent-flutter connect
-flow-walker walk --skip-connect --max-depth 2 --output-dir ./discovered/
-# Review YAML files, edit assertions, commit to repo
-```
-
-### Run a flow suite
-
-```bash
-for flow in flows/*.yaml; do
-  name=$(basename "$flow" .yaml)
-  flow-walker run "$flow" --output-dir "./results/$name/" --json
-  flow-walker report "./results/$name/"
-done
-```
-
-### Compare runs
-
-```bash
-# Run same flow twice, compare run.json
-diff <(jq '.steps[].status' run-a/run.json) <(jq '.steps[].status' run-b/run.json)
-```
