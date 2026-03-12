@@ -1,6 +1,17 @@
 # flow-walker
 
-Auto-explore Flutter apps, execute YAML flows, generate HTML reports — built on [agent-flutter](https://github.com/beastoin/agent-flutter).
+Auto-discover app flows, execute YAML test flows, generate HTML reports.
+
+flow-walker is the **flow layer** — it defines, discovers, executes, and reports on flows. It is **not** a replacement for [agent-flutter](https://github.com/beastoin/agent-flutter) or [agent-swift](https://github.com/beastoin/agent-swift). Those are **transport layers** that control specific platforms. flow-walker uses them as pluggable backends.
+
+```
+flow-walker (flows: walk, run, report)
+    ↓ pluggable transport
+agent-flutter (Flutter apps on Android/iOS)
+agent-swift   (native macOS/iOS apps — planned)
+    ↓
+devices
+```
 
 ## What it does
 
@@ -10,7 +21,7 @@ flow-walker run     →  Executes a YAML flow, produces run.json + video + scree
 flow-walker report  →  Generates self-contained HTML report with embedded video timeline
 ```
 
-**No test scripts to write.** Point flow-walker at a running Flutter app and it discovers the navigation graph automatically.
+**No test scripts to write.** Point flow-walker at a running app and it discovers the navigation graph automatically. The same YAML flows work across transports — only the backend changes.
 
 ## Quick start
 
@@ -139,21 +150,24 @@ steps:
 ## How it works
 
 ```
-flow-walker CLI
+flow-walker CLI (flow layer)
   ↓ shells out to
-agent-flutter CLI (snapshot, press, scroll, fill, back)
+agent-flutter CLI / agent-swift CLI (transport layer)
   ↓ connects via
-Dart VM Service + Marionette
+VM Service + Marionette / XCTest (platform-specific)
   ↓ controls
-Flutter app on device/emulator
+App on device/emulator/desktop
 ```
 
+**Current transport:** agent-flutter (Flutter apps on Android/iOS)
+**Planned:** agent-swift (Omi desktop app on macOS)
+
 **Design principles:**
-1. **agent-flutter as transport** — flow-walker never touches VM Service directly
+1. **Pluggable transport** — flow-walker is the flow layer, agent-flutter/agent-swift are transports. Same YAML flows, different backends
 2. **Fingerprint by structure** — screen identity uses element types/counts, not text
 3. **Safety first** — blocklist prevents pressing destructive elements
 4. **Self-contained output** — HTML reports embed everything as base64
-5. **YAML as contract** — flows are portable, readable, version-controllable
+5. **YAML as contract** — flows are portable, readable, version-controllable across platforms
 
 ## Phase roadmap
 

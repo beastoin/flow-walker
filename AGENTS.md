@@ -2,8 +2,11 @@
 
 ## What is flow-walker
 
-flow-walker auto-explores Flutter apps and executes YAML test flows.
-It builds on [agent-flutter](https://github.com/beastoin/agent-flutter) — all device interaction goes through agent-flutter.
+flow-walker is the **flow layer** — it discovers, executes, and reports on app flows.
+It is NOT a replacement for agent-flutter or agent-swift. Those are **transport layers** that control specific platforms. flow-walker uses them as pluggable backends.
+
+Currently uses [agent-flutter](https://github.com/beastoin/agent-flutter) as transport.
+Planned: [agent-swift](https://github.com/beastoin/agent-swift) for Omi desktop app on macOS.
 
 **Three commands:**
 - `walk` — BFS-explore the app, discover screens, generate YAML flows
@@ -196,20 +199,22 @@ steps:
 | `ANDROID_ADB_SERVER_ADDRESS` | Remote ADB server host | localhost |
 | `ANDROID_ADB_SERVER_PORT` | Remote ADB server port | 5037 |
 
-## Relationship to agent-flutter
+## Relationship to agent-flutter / agent-swift
 
-flow-walker is a **higher-level tool** built on agent-flutter:
+flow-walker is the **flow layer**. agent-flutter and agent-swift are **transport layers**:
 
 ```
-flow-walker (explore + execute + report)
-    ↓ uses
-agent-flutter (connect + snapshot + press + scroll + fill + back)
-    ↓ uses
-Dart VM Service + Marionette (widget tree access)
+flow-walker (flow layer: explore + execute + report)
+    ↓ pluggable transport
+agent-flutter (Flutter apps: connect + snapshot + press + scroll + fill + back)
+agent-swift   (native macOS/iOS: planned)
+    ↓
+VM Service / XCTest (platform-specific)
 ```
 
 flow-walker never accesses VM Service or ADB directly.
-All device interaction goes through `agent-flutter` CLI commands.
+All device interaction goes through the transport CLI.
+The same YAML flows work across transports — only the backend changes.
 
 ## Recipes
 
