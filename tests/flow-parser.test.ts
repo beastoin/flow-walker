@@ -133,6 +133,20 @@ steps:
     assert.equal(flow.steps[0].assert?.bottom_nav_tabs?.min, 4);
   });
 
+  it('parses assert with has_type', () => {
+    const yaml = `
+name: type-assert
+description: Type assert
+steps:
+  - name: Check switches
+    assert:
+      has_type: { type: switch, min: 2 }
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.steps[0].assert?.has_type?.type, 'switch');
+    assert.equal(flow.steps[0].assert?.has_type?.min, 2);
+  });
+
   it('parses note field (ignored by executor)', () => {
     const yaml = `
 name: note-test

@@ -47,6 +47,7 @@ export interface FlowStep {
   assert?: {
     interactive_count?: { min: number; verified?: string };
     bottom_nav_tabs?: { min: number };
+    has_type?: { type: string; min?: number };
     text?: string;
   };
   screenshot?: string;

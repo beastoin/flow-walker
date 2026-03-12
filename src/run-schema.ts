@@ -2,6 +2,7 @@
 
 /** Result of executing a single step */
 export interface StepResult {
+  index: number;          // 0-based step index
   name: string;
   action: string;         // "press" | "scroll" | "fill" | "back" | "assert" | "screenshot"
   status: 'pass' | 'fail' | 'skip';
@@ -12,6 +13,7 @@ export interface StepResult {
   assertion?: {
     interactive_count?: { min: number; actual: number };
     bottom_nav_tabs?: { min: number; actual: number };
+    has_type?: { type: string; min: number; actual: number };
   };
   error?: string;         // error message if failed
 }

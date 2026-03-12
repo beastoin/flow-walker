@@ -51,6 +51,7 @@ export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResul
       const result = await executeStep(step, bridge, options.outputDir, i + 1);
       steps.push({
         ...result,
+        index: i,
         timestamp,
         duration: Date.now() - stepStart,
       });
@@ -58,6 +59,7 @@ export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResul
       // Step failed — mark and continue
       const snapshot = await safeSnapshot(bridge);
       steps.push({
+        index: i,
         name: step.name,
         action: getStepAction(step),
         status: 'fail',
@@ -136,6 +138,7 @@ async function executeStep(
       elements = await safeSnapshot(bridge);
     } else {
       return {
+        index: 0, // filled by caller
         name: step.name,
         action,
         status: 'fail',
@@ -157,6 +160,7 @@ async function executeStep(
       elements = await safeSnapshot(bridge);
     } else {
       return {
+        index: 0, // filled by caller
         name: step.name,
         action,
         status: 'fail',
@@ -203,9 +207,20 @@ async function executeStep(
       assertion.bottom_nav_tabs = { min, actual };
       if (actual < min) status = 'fail';
     }
+    if (step.assert.has_type) {
+      const searchType = step.assert.has_type.type.toLowerCase();
+      const matching = elements.filter(e =>
+        e.type === searchType || e.flutterType?.toLowerCase().includes(searchType)
+      );
+      const actual = matching.length;
+      const min = step.assert.has_type.min ?? 1;
+      assertion.has_type = { type: step.assert.has_type.type, min, actual };
+      if (actual < min) status = 'fail';
+    }
   }
 
   return {
+    index: 0, // filled by caller
     name: step.name,
     action,
     status,

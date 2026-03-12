@@ -12,6 +12,7 @@ describe('validateRunResult', () => {
     result: 'pass',
     steps: [
       {
+        index: 0,
         name: 'Verify home tab',
         action: 'assert',
         status: 'pass',

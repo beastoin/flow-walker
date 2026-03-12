@@ -11,6 +11,7 @@ const makeRun = (overrides: Partial<RunResult> = {}): RunResult => ({
   result: 'pass',
   steps: [
     {
+      index: 0,
       name: 'Verify home tab',
       action: 'assert',
       status: 'pass',
@@ -21,6 +22,7 @@ const makeRun = (overrides: Partial<RunResult> = {}): RunResult => ({
       assertion: { interactive_count: { min: 20, actual: 24 } },
     },
     {
+      index: 1,
       name: 'Press settings',
       action: 'press',
       status: 'pass',
@@ -55,8 +57,8 @@ describe('buildHtml', () => {
     const run = makeRun({
       result: 'fail',
       steps: [
-        { name: 'S1', action: 'assert', status: 'pass', timestamp: 0, duration: 100, elementCount: 5 },
-        { name: 'S2', action: 'press', status: 'fail', timestamp: 100, duration: 200, elementCount: 3, error: 'not found' },
+        { index: 0, name: 'S1', action: 'assert', status: 'pass', timestamp: 0, duration: 100, elementCount: 5 },
+        { index: 1, name: 'S2', action: 'press', status: 'fail', timestamp: 100, duration: 200, elementCount: 3, error: 'not found' },
       ],
     });
     const html = buildHtml(run, '', new Map());
@@ -101,8 +103,8 @@ describe('buildHtml', () => {
   it('renders pass/fail status classes on steps', () => {
     const run = makeRun({
       steps: [
-        { name: 'Good', action: 'assert', status: 'pass', timestamp: 0, duration: 100, elementCount: 5 },
-        { name: 'Bad', action: 'press', status: 'fail', timestamp: 100, duration: 200, elementCount: 0, error: 'fail' },
+        { index: 0, name: 'Good', action: 'assert', status: 'pass', timestamp: 0, duration: 100, elementCount: 5 },
+        { index: 1, name: 'Bad', action: 'press', status: 'fail', timestamp: 100, duration: 200, elementCount: 0, error: 'fail' },
       ],
     });
     const html = buildHtml(run, '', new Map());
@@ -125,7 +127,7 @@ describe('buildHtml', () => {
   it('renders error messages for failed steps', () => {
     const run = makeRun({
       steps: [
-        { name: 'Broken', action: 'press', status: 'fail', timestamp: 0, duration: 100, elementCount: 0, error: 'element not found' },
+        { index: 0, name: 'Broken', action: 'press', status: 'fail', timestamp: 0, duration: 100, elementCount: 0, error: 'element not found' },
       ],
     });
     const html = buildHtml(run, '', new Map());
@@ -169,6 +171,7 @@ describe('buildHtml', () => {
   it('renders bottom_nav_tabs assertion result', () => {
     const run = makeRun({
       steps: [{
+        index: 0,
         name: 'Check nav',
         action: 'assert',
         status: 'pass',

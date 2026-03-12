@@ -93,6 +93,9 @@ export function parseFlow(yamlContent: string): Flow {
     } else if (trimmed.startsWith('bottom_nav_tabs:')) {
       if (!currentStep.assert) currentStep.assert = {};
       currentStep.assert.bottom_nav_tabs = parseInlineObject(trimmed.slice(16).trim()) as { min: number };
+    } else if (trimmed.startsWith('has_type:')) {
+      if (!currentStep.assert) currentStep.assert = {};
+      currentStep.assert.has_type = parseInlineObject(trimmed.slice(9).trim()) as { type: string; min?: number };
     }
   }
 
