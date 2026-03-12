@@ -4,6 +4,7 @@ import { buildHtml } from '../src/reporter.ts';
 import type { RunResult } from '../src/run-schema.ts';
 
 const makeRun = (overrides: Partial<RunResult> = {}): RunResult => ({
+  id: 'test_runId1',
   flow: 'tab-navigation',
   device: 'Pixel_7a',
   startedAt: '2026-03-12T10:00:00Z',

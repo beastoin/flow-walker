@@ -198,7 +198,8 @@ async function handleRun(
   } else {
     const icon = result.result === 'pass' ? '✓' : '✗';
     console.log(`\n${icon} Flow "${result.flow}" ${result.result.toUpperCase()} (${(result.duration / 1000).toFixed(1)}s)`);
-    console.log(`  Output: ${outputDir}`);
+    console.log(`  Run ID: ${result.id}`);
+    console.log(`  Output: ${outputDir}/${result.id}/`);
   }
 
   process.exit(result.result === 'pass' ? 0 : 1);

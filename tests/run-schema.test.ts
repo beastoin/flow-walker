@@ -1,10 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRunResult } from '../src/run-schema.ts';
+import { validateRunResult, generateRunId } from '../src/run-schema.ts';
 import type { RunResult } from '../src/run-schema.ts';
 
 describe('validateRunResult', () => {
   const validRun: RunResult = {
+    id: 'P-tnB_sgKA',
     flow: 'tab-navigation',
     device: 'Pixel_7a',
     startedAt: '2026-03-12T10:00:00Z',
@@ -65,6 +66,11 @@ describe('validateRunResult', () => {
     assert.equal(validateRunResult('string'), false);
   });
 
+  it('rejects missing id field', () => {
+    const { id, ...noId } = validRun;
+    assert.equal(validateRunResult(noId), false);
+  });
+
   it('rejects missing flow field', () => {
     const { flow, ...noFlow } = validRun;
     assert.equal(validateRunResult(noFlow), false);
@@ -111,5 +117,22 @@ describe('validateRunResult', () => {
   it('rejects step missing elementCount', () => {
     const { elementCount, ...noCount } = validRun.steps[0];
     assert.equal(validateRunResult({ ...validRun, steps: [noCount] }), false);
+  });
+});
+
+describe('generateRunId', () => {
+  it('returns a 10-character string', () => {
+    const id = generateRunId();
+    assert.equal(id.length, 10);
+  });
+
+  it('is URL-safe (base64url charset)', () => {
+    const id = generateRunId();
+    assert.match(id, /^[A-Za-z0-9_-]+$/);
+  });
+
+  it('generates unique IDs', () => {
+    const ids = new Set(Array.from({ length: 100 }, () => generateRunId()));
+    assert.equal(ids.size, 100);
   });
 });

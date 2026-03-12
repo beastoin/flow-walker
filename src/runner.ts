@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import type { Flow, FlowStep, SnapshotElement } from './types.ts';
 import { AgentBridge } from './agent-bridge.ts';
-import type { RunResult, StepResult } from './run-schema.ts';
+import { generateRunId, type RunResult, type StepResult } from './run-schema.ts';
 import { screenshot as captureScreenshot, startRecording, stopRecording, startLogcat, stopLogcat, getDeviceName, ensureDir } from './capture.ts';
 
 export interface RunOptions {
@@ -18,7 +18,11 @@ export interface RunOptions {
 /** Execute a flow and produce a RunResult */
 export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResult> {
   const bridge = new AgentBridge(options.agentFlutterPath ?? 'agent-flutter');
-  ensureDir(options.outputDir);
+  const runId = generateRunId();
+
+  // Append run ID to output dir so multiple runs don't overwrite each other
+  const outputDir = join(options.outputDir, runId);
+  ensureDir(outputDir);
 
   const device = getDeviceName();
   const startedAt = new Date().toISOString();
@@ -48,7 +52,7 @@ export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResul
     const timestamp = stepStart - t0;
 
     try {
-      const result = await executeStep(step, bridge, options.outputDir, i + 1);
+      const result = await executeStep(step, bridge, outputDir, i + 1);
       steps.push({
         ...result,
         index: i,
@@ -82,7 +86,7 @@ export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResul
   // Stop video
   let videoPath: string | undefined;
   if (videoHandle) {
-    const localVideo = join(options.outputDir, 'recording.mp4');
+    const localVideo = join(outputDir, 'recording.mp4');
     if (stopRecording(videoHandle, localVideo)) {
       videoPath = 'recording.mp4';
     }
@@ -93,7 +97,7 @@ export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResul
   if (logHandle) {
     const logLines = stopLogcat(logHandle);
     if (logLines.length > 0) {
-      const localLog = join(options.outputDir, 'device.log');
+      const localLog = join(outputDir, 'device.log');
       writeFileSync(localLog, logLines.join('\n'));
       logPath = 'device.log';
     }
@@ -102,6 +106,7 @@ export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResul
   const overallResult = steps.every(s => s.status !== 'fail') ? 'pass' as const : 'fail' as const;
 
   const runResult: RunResult = {
+    id: runId,
     flow: flow.name,
     device,
     startedAt,
@@ -113,7 +118,7 @@ export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResul
   };
 
   // Write run.json
-  const runJsonPath = join(options.outputDir, 'run.json');
+  const runJsonPath = join(outputDir, 'run.json');
   writeFileSync(runJsonPath, JSON.stringify(runResult, null, 2));
 
   return runResult;
