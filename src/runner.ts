@@ -108,6 +108,8 @@ export async function runFlow(flow: Flow, options: RunOptions): Promise<RunResul
   const runResult: RunResult = {
     id: runId,
     flow: flow.name,
+    ...(flow.app ? { app: flow.app } : {}),
+    ...(flow.appUrl ? { appUrl: flow.appUrl } : {}),
     device,
     startedAt,
     duration,
@@ -221,6 +223,42 @@ async function executeStep(
       const min = step.assert.has_type.min ?? 1;
       assertion.has_type = { type: step.assert.has_type.type, min, actual };
       if (actual < min) status = 'fail';
+    }
+    if (step.assert.text_visible || step.assert.text_not_visible) {
+      // Fetch all visible text from UIAutomator accessibility layer
+      const screenTexts = bridge.text();
+
+      if (step.assert.text_visible) {
+        const missing: string[] = [];
+        const found: string[] = [];
+        for (const query of step.assert.text_visible) {
+          const lowerQuery = query.toLowerCase();
+          const match = screenTexts.find(t => t.toLowerCase().includes(lowerQuery));
+          if (match) {
+            found.push(query);
+          } else {
+            missing.push(query);
+            status = 'fail';
+          }
+        }
+        assertion.text_visible = { expected: step.assert.text_visible, found, missing };
+      }
+
+      if (step.assert.text_not_visible) {
+        const unexpected: string[] = [];
+        const absent: string[] = [];
+        for (const query of step.assert.text_not_visible) {
+          const lowerQuery = query.toLowerCase();
+          const match = screenTexts.find(t => t.toLowerCase().includes(lowerQuery));
+          if (match) {
+            unexpected.push(query);
+            status = 'fail';
+          } else {
+            absent.push(query);
+          }
+        }
+        assertion.text_not_visible = { expected_absent: step.assert.text_not_visible, absent, unexpected };
+      }
     }
   }
 

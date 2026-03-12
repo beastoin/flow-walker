@@ -15,6 +15,12 @@ export interface SchemaFlag {
   default?: string;
 }
 
+export interface OutputField {
+  name: string;
+  type: string;
+  description: string;
+}
+
 export interface CommandSchema {
   name: string;
   description: string;
@@ -22,6 +28,7 @@ export interface CommandSchema {
   flags: SchemaFlag[];
   exitCodes: Record<string, string>;
   examples: string[];
+  outputShape?: OutputField[];
 }
 
 export const COMMAND_SCHEMAS: CommandSchema[] = [
@@ -69,6 +76,15 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
       'flow-walker run flows/login.yaml --output-dir ./results/ --json',
       'flow-walker run flows/settings.yaml --dry-run',
     ],
+    outputShape: [
+      { name: 'id', type: 'string', description: 'Unique 10-char run ID' },
+      { name: 'flow', type: 'string', description: 'Flow name' },
+      { name: 'result', type: 'pass|fail', description: 'Overall result' },
+      { name: 'duration', type: 'number', description: 'Total milliseconds' },
+      { name: 'steps', type: 'StepResult[]', description: 'Per-step results with index, name, action, status, duration, elementCount, assertion' },
+      { name: 'device', type: 'string', description: 'Device model' },
+      { name: 'video', type: 'string?', description: 'Recording filename' },
+    ],
   },
   {
     name: 'report',
@@ -88,6 +104,52 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
     ],
   },
   {
+    name: 'push',
+    description: 'Upload report to hosted service and return shareable URL',
+    args: [
+      { name: 'run-dir', required: true, description: 'Directory containing run.json and report.html', type: 'path' },
+    ],
+    flags: [
+      { name: '--json', type: 'boolean', description: 'Machine-readable JSON output' },
+      { name: '--no-json', type: 'boolean', description: 'Force human-readable output' },
+    ],
+    exitCodes: { '0': 'success', '2': 'error' },
+    examples: [
+      'flow-walker push ./run-output/P-tnB_sgKA/',
+      'flow-walker push ./run-output/P-tnB_sgKA/ --json',
+    ],
+    outputShape: [
+      { name: 'id', type: 'string', description: 'Run ID' },
+      { name: 'url', type: 'string', description: 'JSON URL (agent-first)' },
+      { name: 'htmlUrl', type: 'string', description: 'HTML report URL (human)' },
+      { name: 'expiresAt', type: 'string', description: 'ISO 8601 expiry (30 days)' },
+    ],
+  },
+  {
+    name: 'get',
+    description: 'Fetch run data from hosted service',
+    args: [
+      { name: 'run-id', required: true, description: 'Run ID (from push or run output)', type: 'string' },
+    ],
+    flags: [
+      { name: '--json', type: 'boolean', description: 'Compact JSON output (default: pretty-printed)' },
+      { name: '--no-json', type: 'boolean', description: 'Force human-readable output' },
+    ],
+    exitCodes: { '0': 'success', '2': 'error (not found, network)' },
+    examples: [
+      'flow-walker get 25h7afGwBK',
+      'flow-walker get 25h7afGwBK --json',
+      'flow-walker get 25h7afGwBK | jq \'.steps[] | select(.status=="fail")\'',
+    ],
+    outputShape: [
+      { name: 'id', type: 'string', description: 'Run ID' },
+      { name: 'flow', type: 'string', description: 'Flow name' },
+      { name: 'result', type: 'pass|fail', description: 'Overall result' },
+      { name: 'duration', type: 'number', description: 'Total milliseconds' },
+      { name: 'steps', type: 'StepResult[]', description: 'Per-step results' },
+    ],
+  },
+  {
     name: 'schema',
     description: 'Show command schema for agent discovery (always JSON)',
     args: [
@@ -103,7 +165,7 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
   },
 ];
 
-export const SCHEMA_VERSION = '0.1.0';
+export const SCHEMA_VERSION = '0.2.0';
 
 /** Get schema for a specific command */
 export function getCommandSchema(name: string): CommandSchema | undefined {

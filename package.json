@@ -1,6 +1,6 @@
 {
   "name": "flow-walker-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Automatic app flow extraction via agent-flutter",
   "type": "module",
   "bin": {

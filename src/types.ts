@@ -49,6 +49,8 @@ export interface FlowStep {
     bottom_nav_tabs?: { min: number };
     has_type?: { type: string; min?: number };
     text?: string;
+    text_visible?: string[];
+    text_not_visible?: string[];
   };
   screenshot?: string;
   note?: string;
@@ -58,6 +60,8 @@ export interface FlowStep {
 export interface Flow {
   name: string;
   description: string;
+  app?: string;
+  appUrl?: string;
   covers?: string[];
   prerequisites?: string[];
   setup: string;

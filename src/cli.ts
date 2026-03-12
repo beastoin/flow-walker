@@ -9,7 +9,8 @@ import { generateReport, type ReportOptions } from './reporter.ts';
 import { validateRunResult, type RunResult } from './run-schema.ts';
 import { FlowWalkerError, ErrorCodes, formatError } from './errors.ts';
 import { validateFlowPath, validateOutputDir, validateUri, validateBundleId, validateRunDir } from './validate.ts';
-import { COMMAND_SCHEMAS, getCommandSchema, getSchemaEnvelope } from './command-schema.ts';
+import { COMMAND_SCHEMAS, SCHEMA_VERSION, getCommandSchema, getSchemaEnvelope } from './command-schema.ts';
+import { pushReport, getRunData } from './push.ts';
 
 const DEFAULT_BLOCKLIST = 'delete,sign out,remove,reset,unpair,logout,clear all';
 
@@ -29,6 +30,8 @@ Usage:
   flow-walker walk [options]        Auto-explore app and generate YAML flows
   flow-walker run <flow.yaml>       Execute a YAML flow and produce run.json
   flow-walker report <run-dir>      Generate HTML report from run results
+  flow-walker push <run-dir>        Upload report and return shareable URL
+  flow-walker get <run-id>          Fetch run data from hosted service
   flow-walker schema [command]      Show command schema for agent discovery
 
 Run: flow-walker schema for machine-readable command descriptions.
@@ -53,6 +56,7 @@ async function main(): Promise<void> {
       'no-video': { type: 'boolean', default: false },
       'no-logs': { type: 'boolean', default: false },
       'help': { type: 'boolean', default: false },
+      'version': { type: 'boolean', default: false },
     },
   });
 
@@ -64,6 +68,15 @@ async function main(): Promise<void> {
     ?? process.env.FLOW_WALKER_AGENT_PATH
     ?? 'agent-flutter';
   const dryRun = (values['dry-run'] as boolean) || process.env.FLOW_WALKER_DRY_RUN === '1';
+
+  if (values.version) {
+    if (json) {
+      console.log(JSON.stringify({ version: SCHEMA_VERSION }));
+    } else {
+      console.log(`flow-walker ${SCHEMA_VERSION}`);
+    }
+    process.exit(0);
+  }
 
   if (values.help || !subcommand) {
     if (json && subcommand) {
@@ -85,13 +98,17 @@ async function main(): Promise<void> {
       await handleRun(values, positionals, json, agentPath, dryRun);
     } else if (subcommand === 'report') {
       await handleReport(values, positionals, json);
+    } else if (subcommand === 'push') {
+      await handlePush(values, positionals, json);
+    } else if (subcommand === 'get') {
+      await handleGet(values, positionals, json);
     } else if (subcommand === 'schema') {
       handleSchema(positionals);
     } else {
       throw new FlowWalkerError(
         ErrorCodes.INVALID_ARGS,
         `Unknown subcommand: ${subcommand}`,
-        'Available: walk, run, report, schema. Run: flow-walker schema',
+        'Available: walk, run, report, push, get, schema. Run: flow-walker schema',
       );
     }
   } catch (err) {
@@ -243,6 +260,72 @@ async function handleReport(
     console.log(JSON.stringify({ report: outputPath }));
   } else {
     console.log(`Report generated: ${outputPath}`);
+  }
+
+  process.exit(0);
+}
+
+async function handlePush(
+  _values: Record<string, unknown>,
+  positionals: string[],
+  json: boolean,
+): Promise<void> {
+  const runDir = positionals[1];
+  if (!runDir) {
+    throw new FlowWalkerError(
+      ErrorCodes.INVALID_ARGS,
+      'Run directory is required',
+      'Usage: flow-walker push <run-dir>. Run: flow-walker schema push',
+    );
+  }
+
+  validateRunDir(runDir);
+
+  const apiUrl = process.env.FLOW_WALKER_API_URL;
+  const result = await pushReport(runDir, { apiUrl });
+
+  if (json) {
+    console.log(JSON.stringify(result));
+  } else {
+    console.log(`\nReport uploaded successfully.`);
+    console.log(`  JSON: ${result.url}`);
+    console.log(`  HTML: ${result.htmlUrl}`);
+    console.log(`  ID:   ${result.id}`);
+    console.log(`  Expires: ${result.expiresAt}`);
+  }
+
+  process.exit(0);
+}
+
+async function handleGet(
+  _values: Record<string, unknown>,
+  positionals: string[],
+  json: boolean,
+): Promise<void> {
+  const runId = positionals[1];
+  if (!runId) {
+    throw new FlowWalkerError(
+      ErrorCodes.INVALID_ARGS,
+      'Run ID is required',
+      'Usage: flow-walker get <run-id>. Run: flow-walker schema get',
+    );
+  }
+
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(runId)) {
+    throw new FlowWalkerError(
+      ErrorCodes.INVALID_INPUT,
+      'Invalid run ID format',
+      'Run IDs are 6-20 characters: letters, digits, hyphens, underscores',
+    );
+  }
+
+  const apiUrl = process.env.FLOW_WALKER_API_URL;
+  const data = await getRunData(runId, { apiUrl });
+
+  if (json) {
+    console.log(JSON.stringify(data));
+  } else {
+    console.log(JSON.stringify(data, null, 2));
   }
 
   process.exit(0);

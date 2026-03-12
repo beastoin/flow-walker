@@ -106,6 +106,27 @@ export class AgentBridge {
     return this.exec(['back', '--json']);
   }
 
+  /** Get all visible text from UIAutomator accessibility layer */
+  text(): string[] {
+    try {
+      const raw = this.exec(['text', '--json']);
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Check if specific text is visible on screen */
+  textVisible(query: string): boolean {
+    try {
+      this.exec(['text', query]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Get connection status */
   status(): string {
     return this.exec(['status', '--json']);

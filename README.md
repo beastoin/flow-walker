@@ -5,7 +5,7 @@ Auto-discover app flows, execute YAML test flows, generate HTML reports.
 flow-walker is the **flow layer** — it defines, discovers, executes, and reports on flows. It uses [agent-flutter](https://github.com/beastoin/agent-flutter) and [agent-swift](https://github.com/beastoin/agent-swift) as **transport layers** that control specific platforms.
 
 ```
-flow-walker (flows: walk, run, report, schema)
+flow-walker (flows: walk, run, report, push, get, schema)
     |
 agent-flutter (Flutter apps on Android/iOS)
 agent-swift   (native macOS/iOS apps)
@@ -27,9 +27,18 @@ flow-walker run flows/tab-navigation.yaml
 # Generate HTML report
 flow-walker report ./run-output/<run-id>/
 
+# Share report (hosted)
+flow-walker push ./run-output/<run-id>/
+
+# Retrieve run data
+flow-walker get 25h7afGwBK
+
 # Discover commands (agent-first)
 flow-walker schema
 flow-walker schema run
+
+# Version
+flow-walker --version
 ```
 
 ## Prerequisites
@@ -78,6 +87,41 @@ Self-contained HTML with embedded video, screenshots, and clickable step timelin
 flow-walker report ./run-output/25h7afGwBK/
 ```
 
+### `push` — Share report
+
+Uploads report.html to the hosted service and returns a shareable URL. No auth, no config.
+
+```bash
+flow-walker push ./run-output/25h7afGwBK/
+# => URL: https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK
+
+flow-walker push ./run-output/25h7afGwBK/ --json
+# => {"id":"25h7afGwBK","url":"https://...","htmlUrl":"https://....html","expiresAt":"2026-04-11T..."}
+```
+
+Reports are stored for 30 days. Re-pushing the same run is idempotent — returns the same URL with updated expiry. Use `FLOW_WALKER_API_URL` env var to point at a custom server.
+
+Push also uploads `run.json` (stripped of local file paths). URL scheme is agent-first:
+
+```bash
+# Agent: JSON by default
+curl https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK
+curl https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK.json
+
+# Human: HTML report
+open https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK.html
+```
+
+### `get` — Retrieve run data
+
+Fetches structured run data from the hosted service by run ID. Returns JSON (the same run.json uploaded during push, minus local file paths).
+
+```bash
+flow-walker get 25h7afGwBK          # pretty-printed
+flow-walker get 25h7afGwBK --json   # compact (pipe-friendly)
+flow-walker get 25h7afGwBK | jq '.steps[] | select(.status=="fail")'
+```
+
 ### `schema` — Agent discovery
 
 Machine-readable command introspection. Returns versioned JSON with args, flags (with types), exit codes, and examples.
@@ -94,6 +138,8 @@ Agents can discover capabilities programmatically — no --help parsing needed.
 ```yaml
 name: tab-navigation
 description: Bottom nav bar detection, switch between 4 tabs
+app: Omi                                    # optional: app name (shown in reports)
+app_url: https://omi.me                     # optional: app URL (linked in reports)
 covers:
   - app/lib/pages/home/page.dart
 prerequisites:
@@ -118,6 +164,11 @@ steps:
     assert:
       has_type: { type: switch, min: 2 }
 
+  - name: Verify visible text on screen
+    assert:
+      text_visible: ["Featured", "Home"]
+      text_not_visible: ["Error", "Sign In"]
+
   - name: Return to home tab
     press: { bottom_nav_tab: 0 }
     screenshot: final
@@ -141,6 +192,8 @@ steps:
 | `interactive_count` | `{ min: 20 }` | Min total interactive elements on screen |
 | `bottom_nav_tabs` | `{ min: 4 }` | Min bottom navigation tabs |
 | `has_type` | `{ type: switch, min: 2 }` | Min elements of a specific type |
+| `text_visible` | `["Featured", "Home"]` | Text must be visible on screen (via UIAutomator) |
+| `text_not_visible` | `["Error", "Sign In"]` | Text must NOT be visible on screen |
 
 ## Agent-friendly design
 
@@ -153,7 +206,10 @@ Built following [Poehnelt's CLI-for-agents principles](https://justin.poehnelt.c
 - **Dry-run** — `--dry-run` parses and resolves targets without executing (includes resolve reasons)
 - **NDJSON streaming** — walk emits `walk:start`, `screen`, `edge`, `skip` events as one JSON per line
 - **Unique run IDs** — 10-char base64url per run, filesystem-safe, URL-safe
-- **Environment variables** — `FLOW_WALKER_OUTPUT_DIR`, `FLOW_WALKER_AGENT_PATH`, `FLOW_WALKER_DRY_RUN`, `FLOW_WALKER_JSON`
+- **Hosted sharing** — `flow-walker push` uploads report and returns a URL, no auth needed
+- **Agent-first URLs** — `/runs/:id` defaults to JSON; `.html` suffix for humans
+- **App metadata** — optional `app` + `app_url` in YAML flows, shown in reports and landing page
+- **Environment variables** — `FLOW_WALKER_OUTPUT_DIR`, `FLOW_WALKER_AGENT_PATH`, `FLOW_WALKER_DRY_RUN`, `FLOW_WALKER_JSON`, `FLOW_WALKER_API_URL`
 - **Exit codes** — 0 = success, 1 = flow failure, 2 = error
 
 ## Architecture
@@ -182,6 +238,9 @@ App on device/emulator/desktop
 | 1 | walk: BFS explorer, fingerprinting, safety, YAML generation | Complete |
 | 2 | run + report: flow executor, video/screenshots, HTML viewer | Complete |
 | 3 | Agent-grade: structured errors, schema, input hardening, run IDs | Complete |
+| 4 | Hosted reports: push command, Cloudflare Worker + R2 | Complete |
+| 5 | Landing page: live metrics, stats tracking | Complete |
+| 6 | Agent-friendly run data + app metadata | Complete |
 
 ## License
 
