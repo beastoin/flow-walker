@@ -9,7 +9,7 @@ import { generateReport, type ReportOptions } from './reporter.ts';
 import { validateRunResult, type RunResult } from './run-schema.ts';
 import { FlowWalkerError, ErrorCodes, formatError } from './errors.ts';
 import { validateFlowPath, validateOutputDir, validateUri, validateBundleId, validateRunDir } from './validate.ts';
-import { COMMAND_SCHEMAS, getCommandSchema } from './command-schema.ts';
+import { COMMAND_SCHEMAS, getCommandSchema, getSchemaEnvelope } from './command-schema.ts';
 
 const DEFAULT_BLOCKLIST = 'delete,sign out,remove,reset,unpair,logout,clear all';
 
@@ -260,7 +260,7 @@ function handleSchema(positionals: string[]): void {
     }
     console.log(JSON.stringify(schema, null, 2));
   } else {
-    console.log(JSON.stringify(COMMAND_SCHEMAS, null, 2));
+    console.log(JSON.stringify(getSchemaEnvelope(), null, 2));
   }
   process.exit(0);
 }

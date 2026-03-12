@@ -277,7 +277,7 @@ export function getStepAction(step: FlowStep): string {
 /** Dry-run: parse flow and resolve step targets without executing */
 export async function dryRunFlow(flow: Flow, agentFlutterPath: string = 'agent-flutter'): Promise<{
   flow: string;
-  steps: { name: string; action: string; target: unknown; resolved: boolean }[];
+  steps: { index: number; name: string; action: string; target: unknown; resolved: boolean; reason?: string }[];
   dryRun: true;
 }> {
   const bridge = new AgentBridge(agentFlutterPath);
@@ -286,19 +286,24 @@ export async function dryRunFlow(flow: Flow, agentFlutterPath: string = 'agent-f
     elements = await safeSnapshot(bridge);
   } catch { /* no device = empty snapshot */ }
 
-  const steps = flow.steps.map(step => {
+  const hasDevice = elements.length > 0;
+
+  const steps = flow.steps.map((step, i) => {
     const action = getStepAction(step);
     let target: unknown = null;
     let resolved = true;
+    let reason: string | undefined;
 
     if (step.press) {
       const el = resolvePress(step.press, elements);
       target = el ? { ref: el.ref, type: el.type, text: el.text } : step.press;
       resolved = el !== null;
+      if (!resolved) reason = hasDevice ? 'element not found in current snapshot' : 'no device connected for snapshot';
     } else if (step.fill) {
       const el = resolveFill(step.fill, elements);
       target = el ? { ref: el.ref, type: el.type } : step.fill;
       resolved = el !== null;
+      if (!resolved) reason = hasDevice ? 'textfield not found in current snapshot' : 'no device connected for snapshot';
     } else if (step.scroll) {
       target = { direction: step.scroll };
     } else if (step.back) {
@@ -308,7 +313,7 @@ export async function dryRunFlow(flow: Flow, agentFlutterPath: string = 'agent-f
       // Assertions always "resolve" — they check conditions at runtime
     }
 
-    return { name: step.name, action, target, resolved };
+    return { index: i, name: step.name, action, target, resolved, ...(reason ? { reason } : {}) };
   });
 
   return { flow: flow.name, steps, dryRun: true };

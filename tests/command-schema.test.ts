@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { COMMAND_SCHEMAS, getCommandSchema } from '../src/command-schema.ts';
+import { COMMAND_SCHEMAS, getCommandSchema, getSchemaEnvelope, SCHEMA_VERSION } from '../src/command-schema.ts';
 
 describe('COMMAND_SCHEMAS', () => {
   it('contains walk, run, report, and schema commands', () => {
@@ -70,6 +70,52 @@ describe('COMMAND_SCHEMAS', () => {
       assert.ok(schema.exitCodes['0'], `${schema.name}: missing exit code 0`);
       assert.ok(schema.exitCodes['2'], `${schema.name}: missing exit code 2`);
     }
+  });
+
+  it('every flag has a type field', () => {
+    const validTypes = ['string', 'boolean', 'integer', 'path'];
+    for (const schema of COMMAND_SCHEMAS) {
+      for (const flag of schema.flags) {
+        assert.ok(validTypes.includes(flag.type), `${schema.name} flag ${flag.name}: invalid type "${flag.type}"`);
+      }
+    }
+  });
+
+  it('every arg has a type field', () => {
+    const validTypes = ['string', 'path', 'integer'];
+    for (const schema of COMMAND_SCHEMAS) {
+      for (const arg of schema.args) {
+        assert.ok(validTypes.includes(arg.type), `${schema.name} arg ${arg.name}: invalid type "${arg.type}"`);
+      }
+    }
+  });
+
+  it('boolean flags have no default (they default to false)', () => {
+    for (const schema of COMMAND_SCHEMAS) {
+      for (const flag of schema.flags) {
+        if (flag.type === 'boolean') {
+          assert.equal(flag.default, undefined, `${schema.name} flag ${flag.name}: boolean should not have default`);
+        }
+      }
+    }
+  });
+});
+
+describe('getSchemaEnvelope', () => {
+  it('returns version and commands', () => {
+    const envelope = getSchemaEnvelope();
+    assert.ok(envelope.version);
+    assert.ok(Array.isArray(envelope.commands));
+    assert.equal(envelope.commands.length, COMMAND_SCHEMAS.length);
+  });
+
+  it('version matches SCHEMA_VERSION', () => {
+    const envelope = getSchemaEnvelope();
+    assert.equal(envelope.version, SCHEMA_VERSION);
+  });
+
+  it('version is semver format', () => {
+    assert.match(SCHEMA_VERSION, /^\d+\.\d+\.\d+$/);
   });
 });
 

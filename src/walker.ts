@@ -60,6 +60,7 @@ export async function walk(config: WalkerConfig): Promise<WalkResult> {
     const homeTypes = homeSnapshot.elements.map(e => e.flutterType || e.type).sort();
 
     graph.addScreen(homeFingerprint, homeName, homeTypes, homeSnapshot.elements.length);
+    emit(config, { type: 'walk:start', totalElements: homeSnapshot.elements.length, maxDepth: config.maxDepth });
     emit(config, { type: 'screen', id: homeFingerprint, name: homeName, elementCount: homeSnapshot.elements.length });
     log(config, `Home screen: ${homeName} (${homeFingerprint}) — ${homeSnapshot.elements.length} elements`);
 
