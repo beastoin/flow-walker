@@ -227,6 +227,7 @@ async function executeStep(
     if (step.assert.text_visible || step.assert.text_not_visible) {
       // Fetch all visible text from UIAutomator accessibility layer
       const screenTexts = bridge.text();
+      const dumpEmpty = screenTexts.length === 0;
 
       if (step.assert.text_visible) {
         const missing: string[] = [];
@@ -241,7 +242,10 @@ async function executeStep(
             status = 'fail';
           }
         }
-        assertion.text_visible = { expected: step.assert.text_visible, found, missing };
+        assertion.text_visible = {
+          expected: step.assert.text_visible, found, missing,
+          ...(dumpEmpty ? { warning: 'UIAutomator dump returned empty (animated page?)' } : {}),
+        };
       }
 
       if (step.assert.text_not_visible) {

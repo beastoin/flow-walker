@@ -25,7 +25,7 @@ export interface StepResult {
     interactive_count?: { min: number; actual: number };
     bottom_nav_tabs?: { min: number; actual: number };
     has_type?: { type: string; min: number; actual: number };
-    text_visible?: { expected: string[]; found: string[]; missing: string[] };
+    text_visible?: { expected: string[]; found: string[]; missing: string[]; warning?: string };
     text_not_visible?: { expected_absent: string[]; absent: string[]; unexpected: string[] };
   };
   error?: string;         // error message if failed
