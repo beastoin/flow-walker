@@ -3,6 +3,7 @@
 
 import { readFileSync } from 'node:fs';
 import type { Flow, FlowStep } from './types.ts';
+import { FlowWalkerError, ErrorCodes } from './errors.ts';
 
 /** Parse a YAML flow file into a Flow object */
 export function parseFlow(yamlContent: string): Flow {
@@ -100,8 +101,8 @@ export function parseFlow(yamlContent: string): Flow {
     flow.steps!.push(currentStep as FlowStep);
   }
 
-  if (!flow.name) throw new Error('Flow missing required field: name');
-  if (!flow.steps || flow.steps.length === 0) throw new Error('Flow has no steps');
+  if (!flow.name) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow missing required field: name', 'Add a name: field at the top of the YAML flow');
+  if (!flow.steps || flow.steps.length === 0) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow has no steps', 'Add steps: with at least one - name: entry');
 
   return {
     name: flow.name,

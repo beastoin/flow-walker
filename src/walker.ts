@@ -4,6 +4,7 @@ import { filterSafe } from './safety.ts';
 import { NavigationGraph } from './graph.ts';
 import { generateFlows, writeFlows } from './yaml-writer.ts';
 import { AgentBridge } from './agent-bridge.ts';
+import { FlowWalkerError, ErrorCodes } from './errors.ts';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -36,7 +37,7 @@ export async function walk(config: WalkerConfig): Promise<WalkResult> {
     } else if (config.bundleId) {
       bridge.connectBundle(config.bundleId);
     } else {
-      throw new Error('Either --app-uri or --bundle-id is required');
+      throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Either --app-uri or --bundle-id is required', 'Run: flow-walker schema walk');
     }
   }
 
@@ -59,6 +60,7 @@ export async function walk(config: WalkerConfig): Promise<WalkResult> {
     const homeTypes = homeSnapshot.elements.map(e => e.flutterType || e.type).sort();
 
     graph.addScreen(homeFingerprint, homeName, homeTypes, homeSnapshot.elements.length);
+    emit(config, { type: 'screen', id: homeFingerprint, name: homeName, elementCount: homeSnapshot.elements.length });
     log(config, `Home screen: ${homeName} (${homeFingerprint}) — ${homeSnapshot.elements.length} elements`);
 
     // Filter safe elements
@@ -66,6 +68,7 @@ export async function walk(config: WalkerConfig): Promise<WalkResult> {
     totalSkipped += skipped.length;
 
     for (const s of skipped) {
+      emit(config, { type: 'skip', element: s.element.ref, reason: s.reason });
       log(config, `  SKIP ${s.element.ref} "${s.element.text}" — ${s.reason}`);
     }
 
@@ -385,12 +388,17 @@ async function walkBFS(
       text: freshElement.text,
     });
 
+    emit(config, { type: 'screen', id: newFingerprint, name: newName, elementCount: newSnapshot.elements.length });
+    emit(config, { type: 'edge', source: parentFingerprint, target: newFingerprint, element: freshElement.ref });
     log(config, `${indent}  → ${newName} (${newFingerprint}) — ${newSnapshot.elements.length} elements`);
 
     // Queue children for exploration if not visited too much
     if (graph.visitCount(newFingerprint) <= 1 && depth + 1 < config.maxDepth) {
       const [safeChildren, skippedChildren] = filterSafe(newSnapshot.elements, config.blocklist);
       counters.skipped += skippedChildren.length;
+      for (const s of skippedChildren) {
+        emit(config, { type: 'skip', element: s.element.ref, reason: s.reason });
+      }
 
       if (!pressedPerScreen.has(newFingerprint)) {
         pressedPerScreen.set(newFingerprint, new Set());
@@ -632,6 +640,13 @@ function log(config: WalkerConfig, message: string): void {
     console.log(JSON.stringify({ type: 'log', message }));
   } else {
     console.error(message);
+  }
+}
+
+/** Emit NDJSON event (one JSON object per line) in JSON mode */
+function emit(config: WalkerConfig, event: Record<string, unknown>): void {
+  if (config.json) {
+    console.log(JSON.stringify(event));
   }
 }
 

@@ -1,5 +1,6 @@
 import { execFileSync, execSync } from 'node:child_process';
 import type { SnapshotElement, ScreenSnapshot } from './types.ts';
+import { FlowWalkerError, ErrorCodes } from './errors.ts';
 
 /** Package name for the app under test — used to bring app to foreground */
 const DEFAULT_PACKAGE = 'com.friend.ios.dev';
@@ -65,7 +66,7 @@ export class AgentBridge {
       raw = this.exec(['snapshot', '-i', '--json']);
     } catch {
       // Try reconnecting once
-      if (!this.reconnect()) throw new Error('Snapshot failed and reconnect failed');
+      if (!this.reconnect()) throw new FlowWalkerError(ErrorCodes.DEVICE_ERROR, 'Snapshot failed and reconnect failed', 'Check device connection: adb devices');
       raw = this.exec(['snapshot', '-i', '--json']);
     }
     const parsed = JSON.parse(raw);
@@ -157,8 +158,10 @@ export class AgentBridge {
       return result.trim();
     } catch (err: unknown) {
       const error = err as { stderr?: string; message?: string };
-      throw new Error(
+      throw new FlowWalkerError(
+        ErrorCodes.COMMAND_FAILED,
         `agent-flutter ${args[0]} failed: ${error.stderr || error.message}`,
+        `Run: agent-flutter doctor`,
       );
     }
   }

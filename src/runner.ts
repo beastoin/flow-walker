@@ -274,6 +274,46 @@ export function getStepAction(step: FlowStep): string {
   return 'unknown';
 }
 
+/** Dry-run: parse flow and resolve step targets without executing */
+export async function dryRunFlow(flow: Flow, agentFlutterPath: string = 'agent-flutter'): Promise<{
+  flow: string;
+  steps: { name: string; action: string; target: unknown; resolved: boolean }[];
+  dryRun: true;
+}> {
+  const bridge = new AgentBridge(agentFlutterPath);
+  let elements: SnapshotElement[] = [];
+  try {
+    elements = await safeSnapshot(bridge);
+  } catch { /* no device = empty snapshot */ }
+
+  const steps = flow.steps.map(step => {
+    const action = getStepAction(step);
+    let target: unknown = null;
+    let resolved = true;
+
+    if (step.press) {
+      const el = resolvePress(step.press, elements);
+      target = el ? { ref: el.ref, type: el.type, text: el.text } : step.press;
+      resolved = el !== null;
+    } else if (step.fill) {
+      const el = resolveFill(step.fill, elements);
+      target = el ? { ref: el.ref, type: el.type } : step.fill;
+      resolved = el !== null;
+    } else if (step.scroll) {
+      target = { direction: step.scroll };
+    } else if (step.back) {
+      target = { back: true };
+    } else if (step.assert) {
+      target = step.assert;
+      // Assertions always "resolve" — they check conditions at runtime
+    }
+
+    return { name: step.name, action, target, resolved };
+  });
+
+  return { flow: flow.name, steps, dryRun: true };
+}
+
 async function safeSnapshot(bridge: AgentBridge): Promise<SnapshotElement[]> {
   try {
     const snapshot = await bridge.snapshot();
