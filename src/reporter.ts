@@ -162,7 +162,8 @@ function renderStep(step: StepResult, index: number, screenshots: Map<string, st
     </div>`;
 }
 
-function escHtml(str: string): string {
+function escHtml(str: string | undefined | null): string {
+  if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
