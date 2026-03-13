@@ -1,6 +1,3 @@
-// Structured error handling for flow-walker
-// Every error has: code, message, hint, diagnosticId
-
 import { randomUUID } from 'node:crypto';
 
 export const ErrorCodes = {
@@ -11,6 +8,7 @@ export const ErrorCodes = {
   STEP_FAILED: 'STEP_FAILED',
   DEVICE_ERROR: 'DEVICE_ERROR',
   COMMAND_FAILED: 'COMMAND_FAILED',
+  NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];
@@ -40,24 +38,14 @@ export class FlowWalkerError extends Error {
   }
 }
 
-/** Format any error as structured output */
 export function formatError(err: unknown, json: boolean): string {
   if (err instanceof FlowWalkerError) {
-    if (json) {
-      return JSON.stringify(err.toJSON());
-    }
+    if (json) return JSON.stringify(err.toJSON());
     const parts = [`Error [${err.code}:${err.diagnosticId}]: ${err.message}`];
     if (err.hint) parts.push(`Hint: ${err.hint}`);
     return parts.join('\n');
   }
-
-  // Wrap unknown errors
-  const wrapped = new FlowWalkerError(
-    ErrorCodes.COMMAND_FAILED,
-    String(err),
-  );
-  if (json) {
-    return JSON.stringify(wrapped.toJSON());
-  }
+  const wrapped = new FlowWalkerError(ErrorCodes.COMMAND_FAILED, String(err));
+  if (json) return JSON.stringify(wrapped.toJSON());
   return `Error [${wrapped.code}:${wrapped.diagnosticId}]: ${wrapped.message}`;
 }

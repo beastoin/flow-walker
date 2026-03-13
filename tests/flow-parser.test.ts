@@ -261,4 +261,168 @@ steps:
       'app/lib/pages/settings/settings_drawer.dart'
     ]);
   });
+
+  it('parses app and app_url metadata', () => {
+    const yaml = `
+name: omi-navigation
+description: Test Omi app navigation
+app: Omi
+app_url: https://omi.me
+steps:
+  - name: Check home
+    screenshot: home
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.app, 'Omi');
+    assert.equal(flow.appUrl, 'https://omi.me');
+  });
+
+  it('omits app fields when not present', () => {
+    const yaml = `
+name: basic-flow
+description: No app metadata
+steps:
+  - name: Step 1
+    screenshot: s1
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.app, undefined);
+    assert.equal(flow.appUrl, undefined);
+  });
+
+  it('parses text_visible assertion with array', () => {
+    const yaml = `
+name: text-check
+steps:
+  - name: Verify featured text
+    assert:
+      text_visible: ["Featured", "Create Your Own App"]
+`;
+    const flow = parseFlow(yaml);
+    assert.deepEqual(flow.steps[0].assert?.text_visible, ['Featured', 'Create Your Own App']);
+  });
+
+  it('parses text_not_visible assertion with array', () => {
+    const yaml = `
+name: text-check
+steps:
+  - name: Verify no error text
+    assert:
+      text_not_visible: ["Error", "Sign In"]
+`;
+    const flow = parseFlow(yaml);
+    assert.deepEqual(flow.steps[0].assert?.text_not_visible, ['Error', 'Sign In']);
+  });
+
+  it('parses both text_visible and text_not_visible together', () => {
+    const yaml = `
+name: text-check
+steps:
+  - name: Verify screen text
+    assert:
+      text_visible: ["Featured"]
+      text_not_visible: ["Error"]
+`;
+    const flow = parseFlow(yaml);
+    assert.deepEqual(flow.steps[0].assert?.text_visible, ['Featured']);
+    assert.deepEqual(flow.steps[0].assert?.text_not_visible, ['Error']);
+  });
+
+  it('parses text_visible with single value (not array)', () => {
+    const yaml = `
+name: text-check
+steps:
+  - name: Check text
+    assert:
+      text_visible: Featured
+`;
+    const flow = parseFlow(yaml);
+    assert.deepEqual(flow.steps[0].assert?.text_visible, ['Featured']);
+  });
+
+  it('parses text assertions alongside other assertions', () => {
+    const yaml = `
+name: combined-assert
+steps:
+  - name: Full check
+    assert:
+      interactive_count: { min: 10 }
+      text_visible: ["Featured", "Home"]
+      text_not_visible: ["Error"]
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.steps[0].assert?.interactive_count?.min, 10);
+    assert.deepEqual(flow.steps[0].assert?.text_visible, ['Featured', 'Home']);
+    assert.deepEqual(flow.steps[0].assert?.text_not_visible, ['Error']);
+  });
+
+  it('parses press with text field', () => {
+    const yaml = `
+name: text-press
+steps:
+  - name: Tap Next
+    press: { text: "Next" }
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.steps[0].press?.text, 'Next');
+  });
+
+  it('parses fill with text field and value', () => {
+    const yaml = `
+name: text-fill
+steps:
+  - name: Enter email
+    fill: { text: "Email or phone", value: "$TEST_EMAIL" }
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.steps[0].fill?.text, 'Email or phone');
+    assert.equal(flow.steps[0].fill?.value, '$TEST_EMAIL');
+  });
+
+  it('parses wait step', () => {
+    const yaml = `
+name: wait-test
+steps:
+  - name: Wait for OAuth
+    press: { text: "Next" }
+    wait: 5
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.steps[0].wait, 5);
+    assert.equal(flow.steps[0].press?.text, 'Next');
+  });
+
+  it('parses wait-only step', () => {
+    const yaml = `
+name: wait-only
+steps:
+  - name: Pause
+    wait: 3
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.steps[0].wait, 3);
+  });
+
+  it('parses adb step', () => {
+    const yaml = `
+name: adb-test
+steps:
+  - name: Clear app data
+    adb: "shell pm clear com.friend.ios.dev"
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.steps[0].adb, 'shell pm clear com.friend.ios.dev');
+  });
+
+  it('parses fill with focused flag', () => {
+    const yaml = `
+name: focused-fill
+steps:
+  - name: Type email
+    fill: { value: "$TEST_EMAIL", focused: true }
+`;
+    const flow = parseFlow(yaml);
+    assert.equal(flow.steps[0].fill?.focused, true);
+    assert.equal(flow.steps[0].fill?.value, '$TEST_EMAIL');
+  });
 });

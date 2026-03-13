@@ -8,15 +8,17 @@ Do not edit this repo directly — add a new phase program in autoloop instead.
 
 ## Project overview
 
-`flow-walker` is a Node.js CLI that auto-explores Flutter apps, executes YAML test flows, and generates HTML reports.
+`flow-walker` is a Node.js CLI that auto-explores Flutter apps, records agent execution, verifies against flow expectations, and generates HTML reports.
 It builds on [agent-flutter](https://github.com/beastoin/agent-flutter) for all device interaction.
 
-**Six commands:**
+**Eight commands:**
 - `walk` — BFS-explore the app, discover screens, generate YAML flows
-- `run` — Execute a YAML flow, produce run.json + video + screenshots
+- `record` — Initialize, stream, and finish event recording for agent runs
+- `verify` — Check recorded events against flow expectations (strict/balanced/audit)
 - `report` — Generate self-contained HTML report from run results
 - `push` — Upload report to hosted service, return shareable URL
 - `get` — Fetch run data from hosted service by run ID
+- `migrate` — Convert v1 scripted flows to v2 agent-first format
 - `schema` — Machine-readable command introspection
 
 **Design principles:**
@@ -25,32 +27,36 @@ It builds on [agent-flutter](https://github.com/beastoin/agent-flutter) for all 
 3. **Safety first** — blocklist prevents pressing destructive elements
 4. **Self-contained output** — HTML reports embed everything as base64
 5. **YAML as contract** — flows are portable, readable, version-controllable
+6. **Agent-first architecture** — v2 flows use natural language `do:` instructions
 
 ## Architecture
 
-- `src/cli.ts` — entry point, arg parsing, subcommand routing
+- `src/cli.ts` — entry point, arg parsing, subcommand routing (8 v2 commands)
 - `src/walker.ts` — BFS exploration algorithm
 - `src/fingerprint.ts` — screen identity hashing
 - `src/graph.ts` — navigation graph data structure
 - `src/safety.ts` — blocklist evaluation
-- `src/yaml-writer.ts` — YAML flow generation
+- `src/yaml-writer.ts` — YAML flow generation (v1 + v2)
 - `src/agent-bridge.ts` — thin wrapper around agent-flutter CLI
-- `src/flow-parser.ts` — YAML → Flow object parsing
-- `src/runner.ts` — flow step execution engine
-- `src/reporter.ts` — HTML report generation
-- `src/capture.ts` — video, screenshot, logcat helpers
+- `src/flow-parser.ts` — YAML → Flow object parsing (v1 + v2 auto-detect)
+- `src/flow-v2-schema.ts` — v2 flow validation and scaffold generation
+- `src/event-schema.ts` — event validation for record/verify pipeline
+- `src/record.ts` — event recording pipeline (init/stream/finish)
+- `src/verify.ts` — event verification against flow expectations
+- `src/migrate.ts` — v1 → v2 flow migration
+- `src/reporter.ts` — HTML report generation (v1 + v2)
 - `src/run-schema.ts` — RunResult type + validation + run ID generation
-- `src/types.ts` — shared type definitions
+- `src/push.ts` — report upload to hosted service
+- `src/types.ts` — shared type definitions (v1 + v2)
 - `src/errors.ts` — structured error handling (FlowWalkerError)
 - `src/validate.ts` — input validation (paths, URIs, control chars)
-- `src/command-schema.ts` — command schema for agent discovery
-- `src/push.ts` — report upload to hosted service
+- `src/command-schema.ts` — command schema for agent discovery (v2.0.0)
 
 ## Build and test
 
 ```bash
 npm install
-npm test                    # all tests
+npm test                    # 260 tests
 npx tsc --noEmit            # typecheck
 ```
 
@@ -71,6 +77,7 @@ npx tsc --noEmit            # typecheck
 | 4 | Hosted reports: push command, Cloudflare Worker + R2 | eval4.sh (17 gates) |
 | 5 | Landing page: live metrics, stats tracking | eval5.sh (14 gates) |
 | 6 | Agent-friendly run data + app metadata | eval6.sh (13 gates) |
+| 7-9 | v2 agent-first: record/verify pipeline, v2 schema, migrate | eval7-9.sh (33 gates) |
 
 ## What not to do
 

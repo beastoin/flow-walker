@@ -1,222 +1,203 @@
-// YAML flow parser for flow-walker
-// Parses the flow format used in app/e2e/flows/*.yaml
-
 import { readFileSync } from 'node:fs';
-import type { Flow, FlowStep } from './types.ts';
+import type { Flow, FlowStep, FlowV2, FlowV2Step, FlowV2Expect, FlowV2Evidence } from './types.ts';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
-
-/** Parse a YAML flow file into a Flow object */
-export function parseFlow(yamlContent: string): Flow {
+import { validateFlowV2 } from './flow-v2-schema.ts';
+const LEGACY_STEP_KEYS = new Set(['press', 'fill', 'scroll', 'back', 'adb', 'assert', 'wait']);
+export function parseFlowV1(yamlContent: string): Flow {
   const lines = yamlContent.split('\n');
-  const flow: Partial<Flow> = { steps: [] };
-  let currentStep: Partial<FlowStep> | null = null;
-  let inSteps = false;
-  let inCovers = false;
-  let inPrerequisites = false;
-
+  const flow: Record<string, unknown> = { steps: [] };
+  let currentStep: Record<string, unknown> = {};
+  let inSteps = false, inCovers = false, inPrerequisites = false, inAssert = false, inPress = false, inFill = false;
   for (const rawLine of lines) {
     const line = rawLine.trimEnd();
-
-    // Skip comments and blank lines at top level
     if (line.startsWith('#') || line.trim() === '') continue;
-
-    // Top-level fields
     if (!line.startsWith(' ') && !line.startsWith('\t')) {
-      inCovers = false;
-      inPrerequisites = false;
-
-      if (line.startsWith('name:')) {
-        flow.name = parseScalarValue(line.slice(5));
-      } else if (line.startsWith('description:')) {
-        flow.description = parseScalarValue(line.slice(12));
-      } else if (line.startsWith('app:')) {
-        flow.app = parseScalarValue(line.slice(4));
-      } else if (line.startsWith('app_url:')) {
-        flow.appUrl = parseScalarValue(line.slice(8));
-      } else if (line.startsWith('setup:')) {
-        flow.setup = parseScalarValue(line.slice(6));
-      } else if (line.startsWith('covers:')) {
-        inCovers = true;
-        flow.covers = [];
-      } else if (line.startsWith('prerequisites:')) {
-        inPrerequisites = true;
-        flow.prerequisites = [];
-      } else if (line.startsWith('steps:')) {
-        inSteps = true;
-      }
+      inCovers = false; inPrerequisites = false; inAssert = false; inPress = false; inFill = false;
+      if (line.startsWith('name:')) flow.name = pv(line.slice(5));
+      else if (line.startsWith('description:')) flow.description = pv(line.slice(12));
+      else if (line.startsWith('setup:')) flow.setup = pv(line.slice(6));
+      else if (line.startsWith('app:')) flow.app = pv(line.slice(4));
+      else if (line.startsWith('appUrl:') || line.startsWith('app_url:')) flow.appUrl = pv(line.slice(line.indexOf(':') + 1));
+      else if (line.startsWith('covers:')) { inCovers = true; flow.covers = []; }
+      else if (line.startsWith('prerequisites:')) { inPrerequisites = true; flow.prerequisites = []; }
+      else if (line.startsWith('steps:')) inSteps = true;
       continue;
     }
-
-    // Array items under covers/prerequisites
-    const trimmed = line.trim();
-    if (inCovers && trimmed.startsWith('- ')) {
-      flow.covers!.push(parseScalarValue(trimmed.slice(2)));
-      continue;
-    }
-    if (inPrerequisites && trimmed.startsWith('- ')) {
-      flow.prerequisites!.push(parseScalarValue(trimmed.slice(2)));
-      continue;
-    }
-
+    const t = line.trim();
+    if (inCovers && t.startsWith('- ')) { (flow.covers as string[]).push(pv(t.slice(2))); continue; }
+    if (inPrerequisites && t.startsWith('- ')) { (flow.prerequisites as string[]).push(pv(t.slice(2))); continue; }
     if (!inSteps) continue;
-
-    // Step list items
-    if (trimmed.startsWith('- name:')) {
-      if (currentStep && currentStep.name) {
-        flow.steps!.push(currentStep as FlowStep);
-      }
-      currentStep = { name: parseScalarValue(trimmed.slice(7)) };
+    if (t.startsWith('- name:')) {
+      if (currentStep.name) (flow.steps as Record<string, unknown>[]).push(currentStep);
+      currentStep = { name: pv(t.slice(7)) }; inAssert = false; inPress = false; inFill = false; continue;
+    }
+    if (!currentStep.name) continue;
+    if (t.startsWith('screenshot:')) currentStep.screenshot = pv(t.slice(11));
+    else if (t.startsWith('note:')) currentStep.note = pv(t.slice(5));
+    else if (t.startsWith('scroll:')) currentStep.scroll = pv(t.slice(7));
+    else if (t.startsWith('back:')) currentStep.back = pv(t.slice(5)) === 'true';
+    else if (t.startsWith('wait:')) currentStep.wait = parseInt(pv(t.slice(5)), 10);
+    else if (t.startsWith('adb:')) currentStep.adb = pv(t.slice(4));
+    else if (t.startsWith('press:')) {
+      const inline = t.slice(6).trim();
+      if (inline.startsWith('{')) currentStep.press = parseInlineObj(inline);
+      else { inPress = true; inFill = false; inAssert = false; currentStep.press = {}; }
+    } else if (inPress) {
+      const pr = currentStep.press as Record<string, unknown>;
+      if (t.startsWith('type:')) pr.type = pv(t.slice(5));
+      else if (t.startsWith('text:')) pr.text = pv(t.slice(5));
+      else if (t.startsWith('hint:')) pr.hint = pv(t.slice(5));
+      else if (t.startsWith('position:')) pr.position = pv(t.slice(9));
+      else if (t.startsWith('ref:')) pr.ref = pv(t.slice(4));
+      else if (t.startsWith('bottom_nav_tab:')) pr.bottom_nav_tab = parseInt(pv(t.slice(15)), 10);
+      else inPress = false;
+    } else if (t.startsWith('fill:')) {
+      const inline = t.slice(5).trim();
+      if (inline.startsWith('{')) currentStep.fill = parseInlineObj(inline);
+      else { inFill = true; inPress = false; inAssert = false; currentStep.fill = {}; }
+    } else if (inFill) {
+      const fi = currentStep.fill as Record<string, unknown>;
+      if (t.startsWith('type:')) fi.type = pv(t.slice(5));
+      else if (t.startsWith('value:')) fi.value = pv(t.slice(6));
+      else if (t.startsWith('text:')) fi.text = pv(t.slice(5));
+      else if (t.startsWith('focused:')) fi.focused = pv(t.slice(8)) === 'true';
+      else inFill = false;
+    } else if (t.startsWith('assert:')) { inAssert = true; inPress = false; inFill = false; currentStep.assert = {}; }
+    else if (inAssert) {
+      const a = currentStep.assert as Record<string, unknown>;
+      if (t.startsWith('interactive_count:')) { const inline = t.slice(18).trim(); a.interactive_count = inline.startsWith('{') ? parseInlineObj(inline) : {}; }
+      else if (t.startsWith('min:') && a.interactive_count) (a.interactive_count as Record<string, unknown>).min = parseInt(pv(t.slice(4)), 10);
+      else if (t.startsWith('bottom_nav_tabs:')) { const inline = t.slice(16).trim(); a.bottom_nav_tabs = inline.startsWith('{') ? parseInlineObj(inline) : {}; }
+      else if (t.startsWith('text_visible:')) a.text_visible = parseInlineArr(t.slice(13).trim());
+      else if (t.startsWith('text_not_visible:')) a.text_not_visible = parseInlineArr(t.slice(17).trim());
+      else if (t.startsWith('text:')) a.text = pv(t.slice(5));
+      else if (t.startsWith('has_type:')) { const inline = t.slice(9).trim(); if (inline.startsWith('{')) a.has_type = parseInlineObj(inline); }
+    }
+  }
+  if (currentStep.name) (flow.steps as Record<string, unknown>[]).push(currentStep);
+  if (!flow.name) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow missing required field: name');
+  if (!flow.steps || (flow.steps as unknown[]).length === 0) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow has no steps');
+  return flow as unknown as Flow;
+}
+export function parseFlowV2(yamlContent: string): FlowV2 {
+  const lines = yamlContent.split('\n');
+  const flow: Partial<FlowV2> = { steps: [] };
+  let currentStep: Partial<FlowV2Step> & Record<string, unknown> = {};
+  let inSteps = false, inCovers = false, inPreconditions = false, inExpect = false, inEvidence = false, inAnchors = false, inDefaults = false;
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (line.startsWith('#') || line.trim() === '') continue;
+    if (!line.startsWith(' ') && !line.startsWith('\t')) {
+      inCovers = false; inPreconditions = false; inExpect = false; inEvidence = false; inAnchors = false; inDefaults = false;
+      if (line.startsWith('version:')) flow.version = parseInt(pv(line.slice(8)), 10) as 2;
+      else if (line.startsWith('name:')) flow.name = pv(line.slice(5));
+      else if (line.startsWith('description:')) flow.description = pv(line.slice(12));
+      else if (line.startsWith('app:')) flow.app = pv(line.slice(4));
+      else if (line.startsWith('app_url:') || line.startsWith('appUrl:')) flow.appUrl = pv(line.slice(line.indexOf(':') + 1));
+      else if (line.startsWith('covers:')) { inCovers = true; flow.covers = []; }
+      else if (line.startsWith('preconditions:')) { inPreconditions = true; flow.preconditions = []; }
+      else if (line.startsWith('defaults:')) { inDefaults = true; flow.defaults = {}; }
+      else if (line.startsWith('steps:')) inSteps = true;
       continue;
     }
-
-    if (!currentStep) continue;
-
-    // Step fields
-    if (trimmed.startsWith('press:')) {
-      currentStep.press = parseInlineObject(trimmed.slice(6).trim()) as FlowStep['press'];
-    } else if (trimmed.startsWith('scroll:')) {
-      currentStep.scroll = parseScalarValue(trimmed.slice(7));
-    } else if (trimmed.startsWith('fill:')) {
-      currentStep.fill = parseInlineObject(trimmed.slice(5).trim()) as FlowStep['fill'];
-    } else if (trimmed.startsWith('back:')) {
-      currentStep.back = parseScalarValue(trimmed.slice(5)) === 'true';
-    } else if (trimmed.startsWith('screenshot:')) {
-      currentStep.screenshot = parseScalarValue(trimmed.slice(11));
-    } else if (trimmed.startsWith('note:')) {
-      currentStep.note = parseScalarValue(trimmed.slice(5));
-    } else if (trimmed.startsWith('assert:')) {
-      const inlineVal = trimmed.slice(7).trim();
-      if (inlineVal) {
-        currentStep.assert = parseInlineObject(inlineVal) as FlowStep['assert'];
-      } else {
-        currentStep.assert = {};
-      }
-    } else if (trimmed.startsWith('interactive_count:')) {
-      if (!currentStep.assert) currentStep.assert = {};
-      currentStep.assert.interactive_count = parseInlineObject(trimmed.slice(18).trim()) as { min: number };
-    } else if (trimmed.startsWith('bottom_nav_tabs:')) {
-      if (!currentStep.assert) currentStep.assert = {};
-      currentStep.assert.bottom_nav_tabs = parseInlineObject(trimmed.slice(16).trim()) as { min: number };
-    } else if (trimmed.startsWith('has_type:')) {
-      if (!currentStep.assert) currentStep.assert = {};
-      currentStep.assert.has_type = parseInlineObject(trimmed.slice(9).trim()) as { type: string; min?: number };
-    } else if (trimmed.startsWith('text_visible:')) {
-      if (!currentStep.assert) currentStep.assert = {};
-      currentStep.assert.text_visible = parseInlineArray(trimmed.slice(13).trim());
-    } else if (trimmed.startsWith('text_not_visible:')) {
-      if (!currentStep.assert) currentStep.assert = {};
-      currentStep.assert.text_not_visible = parseInlineArray(trimmed.slice(17).trim());
+    const t = line.trim();
+    if (inDefaults && !inSteps) {
+      if (t.startsWith('timeout_ms:')) flow.defaults!.timeout_ms = parseInt(pv(t.slice(11)), 10);
+      else if (t.startsWith('retries:')) flow.defaults!.retries = parseInt(pv(t.slice(8)), 10);
+      else if (t.startsWith('vision:')) flow.defaults!.vision = pv(t.slice(7));
+      continue;
     }
+    if (inCovers && t.startsWith('- ')) { flow.covers!.push(pv(t.slice(2))); continue; }
+    if (inPreconditions && t.startsWith('- ')) { flow.preconditions!.push(pv(t.slice(2))); continue; }
+    if (!inSteps) continue;
+    if (t.startsWith('- id:')) {
+      if (currentStep.id) flow.steps!.push(currentStep as unknown as FlowV2Step);
+      currentStep = { id: pv(t.slice(5)) }; inExpect = false; inEvidence = false; inAnchors = false; continue;
+    }
+    if (!currentStep.id) continue;
+    if (t.startsWith('name:')) currentStep.name = pv(t.slice(5));
+    else if (t.startsWith('do:')) currentStep.do = pv(t.slice(3));
+    else if (t.startsWith('anchors:')) {
+      const v = t.slice(8).trim();
+      if (v.startsWith('[')) { currentStep.anchors = parseInlineArr(v); inAnchors = false; }
+      else { inAnchors = true; currentStep.anchors = []; }
+    } else if (inAnchors && t.startsWith('- ')) {
+      if (!currentStep.anchors) currentStep.anchors = [];
+      (currentStep.anchors as string[]).push(pv(t.slice(2)));
+    } else if (t.startsWith('expect:')) { inExpect = true; inEvidence = false; inAnchors = false; currentStep.expect = []; }
+    else if (inExpect && t.startsWith('- ')) {
+      const ei: Partial<FlowV2Expect> = {};
+      const rest = t.slice(2).trim();
+      if (rest.startsWith('milestone:')) ei.milestone = pv(rest.slice(10));
+      else if (rest.startsWith('kind:')) ei.kind = pv(rest.slice(5));
+      (currentStep.expect as FlowV2Expect[]).push(ei as FlowV2Expect);
+    } else if (inExpect && !t.startsWith('- ')) {
+      const last = (currentStep.expect as FlowV2Expect[])?.at(-1);
+      if (last) {
+        const r = last as Record<string, unknown>;
+        if (t.startsWith('milestone:')) r.milestone = pv(t.slice(10));
+        if (t.startsWith('kind:')) r.kind = pv(t.slice(5));
+        if (t.startsWith('outcome:')) r.outcome = pv(t.slice(8));
+        if (t.startsWith('min:')) r.min = parseInt(pv(t.slice(4)), 10);
+        if (t.startsWith('values:')) r.values = parseInlineArr(t.slice(7).trim());
+      }
+    } else if (t.startsWith('evidence:')) { inEvidence = true; inExpect = false; inAnchors = false; currentStep.evidence = []; }
+    else if (inEvidence && t.startsWith('- ')) {
+      const rest = t.slice(2).trim();
+      const ei: Partial<FlowV2Evidence> = {};
+      if (rest.startsWith('screenshot:')) ei.screenshot = pv(rest.slice(11));
+      (currentStep.evidence as FlowV2Evidence[]).push(ei as FlowV2Evidence);
+    } else if (t.startsWith('note:')) currentStep.note = pv(t.slice(5));
+    else { for (const key of LEGACY_STEP_KEYS) { if (t.startsWith(`${key}:`)) currentStep[key] = t.slice(key.length + 1).trim(); } }
   }
-
-  // Push last step
-  if (currentStep && currentStep.name) {
-    flow.steps!.push(currentStep as FlowStep);
-  }
-
-  if (!flow.name) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow missing required field: name', 'Add a name: field at the top of the YAML flow');
-  if (!flow.steps || flow.steps.length === 0) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow has no steps', 'Add steps: with at least one - name: entry');
-
-  return {
-    name: flow.name,
-    description: flow.description ?? '',
-    ...(flow.app ? { app: flow.app } : {}),
-    ...(flow.appUrl ? { appUrl: flow.appUrl } : {}),
-    covers: flow.covers,
-    prerequisites: flow.prerequisites,
-    setup: flow.setup ?? 'normal',
-    steps: flow.steps,
-  };
-}
-
-/** Load and parse a YAML flow from a file path */
-export function parseFlowFile(filePath: string): Flow {
-  const content = readFileSync(filePath, 'utf-8');
-  return parseFlow(content);
-}
-
-/** Parse a scalar YAML value (strip quotes, inline comments) */
-function parseScalarValue(raw: string): string {
-  let val = raw.trim();
-  // Remove inline comments (but not # inside quotes)
-  const commentIdx = val.indexOf('  #');
-  if (commentIdx > 0) val = val.slice(0, commentIdx).trim();
-  // Strip surrounding quotes
-  if ((val.startsWith('"') && val.endsWith('"')) ||
-      (val.startsWith("'") && val.endsWith("'"))) {
-    val = val.slice(1, -1);
-  }
-  return val;
-}
-
-/** Parse an inline YAML object like { type: button, position: rightmost } */
-function parseInlineObject(raw: string): Record<string, unknown> {
-  const str = raw.trim();
-  if (!str.startsWith('{') || !str.endsWith('}')) {
-    // Simple scalar — return as-is in a value field
-    return { value: parseScalarValue(str) } as Record<string, unknown>;
-  }
-
-  const inner = str.slice(1, -1).trim();
-  const result: Record<string, unknown> = {};
-
-  // Split by comma, handling quoted strings
-  const pairs = splitCommas(inner);
-  for (const pair of pairs) {
-    const colonIdx = pair.indexOf(':');
-    if (colonIdx < 0) continue;
-    const key = pair.slice(0, colonIdx).trim();
-    const valRaw = pair.slice(colonIdx + 1).trim();
-    const val = parseScalarValue(valRaw);
-
-    // Type coercion
-    if (val === 'true') result[key] = true;
-    else if (val === 'false') result[key] = false;
-    else if (/^\d+$/.test(val)) result[key] = parseInt(val, 10);
-    else if (/^\d+\.\d+$/.test(val)) result[key] = parseFloat(val);
-    else result[key] = val;
-  }
-
+  if (currentStep.id) flow.steps!.push(currentStep as unknown as FlowV2Step);
+  if (!flow.version) flow.version = 2;
+  if (!flow.name) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow missing required field: name');
+  if (!flow.steps || flow.steps.length === 0) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow has no steps');
+  const result = flow as FlowV2;
+  validateFlowV2(result);
   return result;
 }
-
-/** Parse an inline YAML array like ["Featured", "Create Your Own App"] */
-function parseInlineArray(raw: string): string[] {
-  const str = raw.trim();
-  if (!str.startsWith('[') || !str.endsWith(']')) {
-    // Single value — wrap in array
-    const val = parseScalarValue(str);
-    return val ? [val] : [];
-  }
-
-  const inner = str.slice(1, -1).trim();
-  if (!inner) return [];
-
-  return splitCommas(inner).map(s => parseScalarValue(s)).filter(Boolean);
+export function parseFlowFile(filePath: string): Flow | FlowV2 {
+  const content = readFileSync(filePath, 'utf-8');
+  if (/^version:\s*2\s*$/m.test(content)) return parseFlowV2(content);
+  return parseFlowV1(content);
 }
-
-/** Split string by commas, respecting quoted strings */
-function splitCommas(str: string): string[] {
-  const parts: string[] = [];
-  let current = '';
-  let inQuote = false;
-  let quoteChar = '';
-
-  for (const ch of str) {
-    if (!inQuote && (ch === '"' || ch === "'")) {
-      inQuote = true;
-      quoteChar = ch;
-      current += ch;
-    } else if (inQuote && ch === quoteChar) {
-      inQuote = false;
-      current += ch;
-    } else if (!inQuote && ch === ',') {
-      parts.push(current.trim());
-      current = '';
-    } else {
-      current += ch;
-    }
+export const parseFlow = parseFlowV1;
+function pv(raw: string): string {
+  let val = raw.trim();
+  const ci = val.indexOf('  #');
+  if (ci > 0) val = val.slice(0, ci).trim();
+  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+  return val;
+}
+function parseInlineArr(raw: string): string[] {
+  const s = raw.trim();
+  if (!s.startsWith('[') || !s.endsWith(']')) { const v = pv(s); return v ? [v] : []; }
+  const inner = s.slice(1, -1).trim();
+  if (!inner) return [];
+  return splitC(inner).map(x => pv(x)).filter(Boolean);
+}
+function parseInlineObj(raw: string): Record<string, unknown> {
+  const s = raw.trim();
+  if (!s.startsWith('{') || !s.endsWith('}')) return {};
+  const inner = s.slice(1, -1).trim();
+  if (!inner) return {};
+  const obj: Record<string, unknown> = {};
+  for (const pair of splitC(inner)) {
+    const ci = pair.indexOf(':');
+    if (ci > 0) { const k = pair.slice(0, ci).trim(); const v = pv(pair.slice(ci + 1)); const n = Number(v); obj[k] = v === "true" ? true : v === "false" ? false : isNaN(n) ? v : n; }
   }
-  if (current.trim()) parts.push(current.trim());
+  return obj;
+}
+function splitC(str: string): string[] {
+  const parts: string[] = []; let cur = ''; let inQ = false; let qc = '';
+  for (const ch of str) {
+    if (!inQ && (ch === '"' || ch === "'")) { inQ = true; qc = ch; cur += ch; }
+    else if (inQ && ch === qc) { inQ = false; cur += ch; }
+    else if (!inQ && ch === ',') { parts.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  if (cur.trim()) parts.push(cur.trim());
   return parts;
 }

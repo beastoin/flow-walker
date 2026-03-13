@@ -101,6 +101,52 @@ export class AgentBridge {
     return this.exec(['fill', ref, text]);
   }
 
+  /** Press text on screen via UIAutomator (works on system UI like Chrome, permission dialogs) */
+  textPress(query: string): boolean {
+    try {
+      this.exec(['text', query, '--press']);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Fill text field by label via UIAutomator (tap to focus + type value) */
+  textFill(query: string, value: string): boolean {
+    try {
+      this.exec(['text', query, '--fill', value]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Fill currently focused text field (no text matching needed) */
+  textFillFocused(value: string): boolean {
+    try {
+      this.exec(['text', '--fill', value, '--focused']);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Execute raw ADB command (e.g., "shell pm clear com.example.app") */
+  adbExec(command: string): boolean {
+    try {
+      const adbArgs = this.adbDeviceArgs();
+      const parts = command.split(/\s+/);
+      execFileSync('adb', [...adbArgs, ...parts], {
+        encoding: 'utf8',
+        timeout: 15000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Navigate back */
   back(): string {
     return this.exec(['back', '--json']);

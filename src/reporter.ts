@@ -1,51 +1,25 @@
-// HTML report generator: run.json → self-contained HTML viewer
-
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { RunResult, StepResult } from './run-schema.ts';
 
-export interface ReportOptions {
-  noVideo?: boolean;
-  output?: string;
-}
+export interface ReportOptions { noVideo?: boolean; output?: string; }
 
-/** Generate a self-contained HTML report from a RunResult */
 export function generateReport(runResult: RunResult, runDir: string, options: ReportOptions = {}): string {
   const outputPath = options.output ?? join(runDir, 'report.html');
-
-  // Embed video as base64 if available
   let videoBase64 = '';
   if (!options.noVideo && runResult.video) {
-    try {
-      const videoPath = join(runDir, runResult.video);
-      const videoData = readFileSync(videoPath);
-      videoBase64 = videoData.toString('base64');
-    } catch { /* video not available */ }
+    try { const videoPath = join(runDir, runResult.video); const videoData = readFileSync(videoPath); videoBase64 = videoData.toString('base64'); } catch { /* not available */ }
   }
-
-  // Embed screenshots as base64
   const screenshotData: Map<string, string> = new Map();
   for (const step of runResult.steps) {
-    if (step.screenshot) {
-      try {
-        const imgPath = join(runDir, step.screenshot);
-        const imgData = readFileSync(imgPath);
-        screenshotData.set(step.screenshot, imgData.toString('base64'));
-      } catch { /* screenshot not available */ }
-    }
+    if (step.screenshot) { try { const imgPath = join(runDir, step.screenshot); const imgData = readFileSync(imgPath); screenshotData.set(step.screenshot, imgData.toString('base64')); } catch { /* not available */ } }
   }
-
   const html = buildHtml(runResult, videoBase64, screenshotData);
   writeFileSync(outputPath, html);
   return outputPath;
 }
 
-/** Build the HTML string */
-export function buildHtml(
-  run: RunResult,
-  videoBase64: string,
-  screenshots: Map<string, string>,
-): string {
+export function buildHtml(run: RunResult, videoBase64: string, screenshots: Map<string, string>): string {
   const passCount = run.steps.filter(s => s.status === 'pass').length;
   const failCount = run.steps.filter(s => s.status === 'fail').length;
   const durationSec = (run.duration / 1000).toFixed(1);
@@ -125,7 +99,6 @@ function jumpTo(time, el) {
   if (el) el.classList.add('active');
 }
 
-// Keyboard shortcuts: 1-9 jump to step, Space play/pause
 document.addEventListener('keydown', (e) => {
   const num = parseInt(e.key);
   if (num >= 1 && num <= steps.length) {
@@ -139,7 +112,6 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Auto-highlight step based on video time
 if (video) {
   video.addEventListener('timeupdate', () => {
     const t = video.currentTime;
@@ -162,26 +134,14 @@ function renderStep(step: StepResult, index: number, screenshots: Map<string, st
   const statusIcon = step.status === 'pass' ? '✓' : step.status === 'fail' ? '✗' : '○';
 
   let detail = step.action;
-  if (step.assertion?.interactive_count) {
-    detail = `assert: interactive_count ≥ ${step.assertion.interactive_count.min}`;
-  }
-  if (step.assertion?.bottom_nav_tabs) {
-    detail += (detail ? ', ' : 'assert: ') + `bottom_nav_tabs ≥ ${step.assertion.bottom_nav_tabs.min}`;
-  }
+  if (step.assertion?.interactive_count) detail = `assert: interactive_count ≥ ${step.assertion.interactive_count.min}`;
+  if (step.assertion?.bottom_nav_tabs) detail += (detail ? ', ' : 'assert: ') + `bottom_nav_tabs ≥ ${step.assertion.bottom_nav_tabs.min}`;
 
   let resultText = '';
-  if (step.assertion?.interactive_count) {
-    resultText = `${statusIcon} ${step.assertion.interactive_count.actual} elements`;
-  }
-  if (step.assertion?.bottom_nav_tabs) {
-    resultText += (resultText ? ', ' : `${statusIcon} `) + `${step.assertion.bottom_nav_tabs.actual} nav tabs`;
-  }
-  if (step.error) {
-    resultText = `${statusIcon} ${step.error}`;
-  }
-  if (!resultText && step.status === 'pass') {
-    resultText = `${statusIcon} ${step.elementCount} elements`;
-  }
+  if (step.assertion?.interactive_count) resultText = `${statusIcon} ${step.assertion.interactive_count.actual} elements`;
+  if (step.assertion?.bottom_nav_tabs) resultText += (resultText ? ', ' : `${statusIcon} `) + `${step.assertion.bottom_nav_tabs.actual} nav tabs`;
+  if (step.error) resultText = `${statusIcon} ${step.error}`;
+  if (!resultText && step.status === 'pass') resultText = `${statusIcon} ${step.elementCount} elements`;
 
   let thumbHtml = '';
   if (step.screenshot && screenshots.has(step.screenshot)) {
@@ -203,9 +163,26 @@ function renderStep(step: StepResult, index: number, screenshots: Map<string, st
 }
 
 function escHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── v2 report generator (VerifyResult → HTML) ──
+import type { VerifyResult, VerifyStepResult } from './verify.ts';
+
+export function generateReportV2(runResult: VerifyResult, runDir: string, options: ReportOptions = {}): string {
+  const outputPath = options.output ?? join(runDir, 'report.html');
+  const html = buildHtmlV2(runResult);
+  writeFileSync(outputPath, html);
+  return outputPath;
+}
+
+export function buildHtmlV2(run: VerifyResult): string {
+  const passCount = run.steps.filter(s => s.outcome === 'pass').length;
+  const failCount = run.steps.filter(s => s.outcome === 'fail').length;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Flow Verify: ${escHtml(run.flow)}</title></head><body>
+<h1>${escHtml(run.flow)}</h1>
+<div>mode: ${escHtml(run.mode)} | ${run.steps.length} steps | pass: ${passCount} | fail: ${failCount}</div>
+<div>${run.result}</div>
+${run.steps.map(s => { const icon = s.outcome === 'pass' ? '✓' : s.outcome === 'fail' ? '✗' : '○'; return `<div>${escHtml(s.id)} ${escHtml(s.name || '')} — ${icon} ${s.outcome}<br>${escHtml(s.do)}</div>`; }).join('\n')}
+</body></html>`;
 }
