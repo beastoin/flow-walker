@@ -37,10 +37,18 @@ export class AgentBridge {
     this.lastUri = uri;
   }
 
-  /** Reconnect using the last connection parameters */
+  /** Reconnect using auto-detect first, then last connection parameters */
   reconnect(): boolean {
     try {
       try { this.exec(['disconnect']); } catch { /* ignore */ }
+      // Try auto-detect first (handles app restart with new VM Service port)
+      try {
+        const out = this.exec(['connect']);
+        // Update lastUri from auto-detected connection
+        const uriMatch = out.match(/Auto-detected:\s*(ws:\/\/\S+)/);
+        if (uriMatch) this.lastUri = uriMatch[1];
+        return true;
+      } catch { /* auto-detect failed, fall back to stored URI */ }
       if (this.lastUri) {
         this.exec(['connect', this.lastUri]);
       } else if (this.lastBundleId) {
