@@ -174,9 +174,9 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
   const outputPath = options.output ?? join(runDir, 'report.html');
   const screenshotData: Map<string, string> = new Map();
   for (const step of runResult.steps) {
-    for (const ev of step.events) {
+    for (const ev of step.events as Array<Record<string, unknown>>) {
       if (ev.type === 'artifact' && ev.path) {
-        try { const imgPath = join(runDir, ev.path); const imgData = readFileSync(imgPath); screenshotData.set(ev.path, imgData.toString('base64')); } catch { /* not available */ }
+        try { const imgPath = join(runDir, ev.path as string); const imgData = readFileSync(imgPath); screenshotData.set(ev.path as string, imgData.toString('base64')); } catch { /* not available */ }
       }
     }
   }
@@ -199,11 +199,11 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
   const renderStep = (s: VerifyResult['steps'][0], i: number): string => {
     const icon = s.outcome === 'pass' ? '&#10003;' : s.outcome === 'fail' ? '&#10007;' : '&#9675;';
     const cls = s.outcome === 'pass' ? 'pass' : s.outcome === 'fail' ? 'fail' : 'skip';
-    const artifact = s.events.find(e => e.type === 'artifact' && e.path);
-    const imgB64 = artifact?.path ? screenshots.get(artifact.path) : undefined;
-    const expects = (s.expectations || []).map(e => {
+    const artifact = (s.events as Array<Record<string, unknown>>).find(e => e.type === 'artifact' && e.path);
+    const imgB64 = artifact?.path ? screenshots.get(artifact.path as string) : undefined;
+    const expects = ((s.expectations || []) as Array<Record<string, unknown>>).map(e => {
       const met = e.met ? '&#10003;' : '&#10007;';
-      return `<span class="expect ${e.met ? 'met' : 'unmet'}">${met} ${escHtml(e.milestone)}</span>`;
+      return `<span class="expect ${e.met ? 'met' : 'unmet'}">${met} ${escHtml(e.milestone as string)}</span>`;
     }).join(' ');
 
     return `<div class="step ${cls}">

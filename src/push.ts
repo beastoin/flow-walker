@@ -55,7 +55,7 @@ export async function pushReport(
       if (runData.appUrl || runData.app_url) appUrl = String(runData.appUrl || runData.app_url);
       if (Array.isArray(runData.steps)) {
         stepsTotal = runData.steps.length;
-        stepsPass = runData.steps.filter((s: { status?: string }) => s.status === 'pass').length;
+        stepsPass = runData.steps.filter((s: { status?: string; outcome?: string }) => s.status === 'pass' || s.outcome === 'pass').length;
       }
       // Prepare run.json for upload — strip local file paths
       const uploadData = { ...runData };
