@@ -114,10 +114,16 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     const runId = values['run-id'] as string; const runDir = values['run-dir'] as string;
     if (!runId) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record stream requires --run-id');
     if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record stream requires --run-dir');
-    const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-    const input = Buffer.concat(chunks).toString('utf-8');
-    const lines = input.trim().split('\n').filter(Boolean);
+    const eventsFlag = values['events'] as string | undefined;
+    let lines: string[];
+    if (eventsFlag) {
+      lines = eventsFlag.trim().split('\n').filter(Boolean);
+    } else {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+      const input = Buffer.concat(chunks).toString('utf-8');
+      lines = input.trim().split('\n').filter(Boolean);
+    }
     const count = recordStream({ runId, runDir }, lines);
     console.log(json ? JSON.stringify({ appended: count }) : `Appended ${count} events`);
     process.exit(0);
