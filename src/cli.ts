@@ -106,8 +106,10 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record init requires --flow <path>');
     validateFlowPath(flowPath);
     const outputDir = (values['output-dir'] as string | undefined) ?? './runs/';
-    const result = recordInit({ flowPath, outputDir, runId: values['run-id'] as string | undefined });
-    console.log(json ? JSON.stringify(result) : `Run initialized: ${result.id}\n  Directory: ${result.dir}`);
+    const noVideo = values['no-video'] as boolean;
+    const device = process.env.AGENT_FLUTTER_DEVICE || undefined;
+    const result = recordInit({ flowPath, outputDir, runId: values['run-id'] as string | undefined, noVideo, device });
+    console.log(json ? JSON.stringify(result) : `Run initialized: ${result.id}\n  Directory: ${result.dir}${result.video ? '\n  Video: recording' : ''}`);
     process.exit(0);
   }
   if (sub === 'stream') {
@@ -133,7 +135,8 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     const status = (values['status'] as string) || 'pass';
     if (!runId) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-id');
     if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-dir');
-    recordFinish({ runId, runDir, status });
+    const finishDevice = process.env.AGENT_FLUTTER_DEVICE || undefined;
+    recordFinish({ runId, runDir, status, device: finishDevice });
     console.log(json ? JSON.stringify({ status, finished: true }) : `Run ${runId} finished: ${status}`);
     process.exit(0);
   }

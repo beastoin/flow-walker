@@ -1,11 +1,12 @@
-import { mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { spawn, execSync } from 'node:child_process';
 import { validateEvent } from './event-schema.ts';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
 
-export interface RecordInitOptions { flowPath: string; outputDir: string; runId?: string; }
-export interface RecordInitResult { id: string; dir: string; }
+export interface RecordInitOptions { flowPath: string; outputDir: string; runId?: string; noVideo?: boolean; device?: string; }
+export interface RecordInitResult { id: string; dir: string; video?: boolean; }
 
 export function recordInit(opts: RecordInitOptions): RecordInitResult {
   const id = opts.runId || randomBytes(5).toString('base64url').slice(0, 10);
@@ -13,9 +14,29 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
   mkdirSync(runDir, { recursive: true });
   const flowContent = readFileSync(opts.flowPath, 'utf-8');
   writeFileSync(join(runDir, 'flow.lock.yaml'), flowContent);
-  writeFileSync(join(runDir, 'run.meta.json'), JSON.stringify({ id, status: 'recording', startedAt: new Date().toISOString() }));
+  const meta: Record<string, unknown> = { id, status: 'recording', startedAt: new Date().toISOString() };
+
+  // Start video recording via ADB screenrecord (best-effort)
+  let videoStarted = false;
+  if (!opts.noVideo) {
+    try {
+      const adbArgs = opts.device ? ['-s', opts.device] : [];
+      const deviceRecordPath = `/sdcard/fw-${id}.mp4`;
+      const proc = spawn('adb', [...adbArgs, 'shell', 'screenrecord', '--size', '720x1280', '--bit-rate', '2000000', deviceRecordPath], {
+        stdio: 'ignore', detached: true,
+      });
+      proc.unref();
+      if (proc.pid) {
+        meta.videoPid = proc.pid;
+        meta.videoDevicePath = deviceRecordPath;
+        videoStarted = true;
+      }
+    } catch { /* ADB not available — skip video */ }
+  }
+
+  writeFileSync(join(runDir, 'run.meta.json'), JSON.stringify(meta));
   writeFileSync(join(runDir, 'events.jsonl'), '');
-  return { id, dir: runDir };
+  return { id, dir: runDir, video: videoStarted };
 }
 
 export function recordStream(ctx: { runId: string; runDir: string }, lines: string[]): number {
@@ -37,7 +58,7 @@ export function recordStream(ctx: { runId: string; runDir: string }, lines: stri
   return count;
 }
 
-export function recordFinish(ctx: { runId: string; runDir: string; status: string }): void {
+export function recordFinish(ctx: { runId: string; runDir: string; status: string; device?: string }): void {
   const runDir = findDir(ctx.runDir, ctx.runId);
   const metaPath = join(runDir, 'run.meta.json');
   const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
@@ -46,7 +67,32 @@ export function recordFinish(ctx: { runId: string; runDir: string; status: strin
   meta.status = ctx.status;
   meta.finishedAt = new Date().toISOString();
   meta.eventCount = eventLines.length;
+
+  // Stop video recording and pull file from device
+  if (meta.videoDevicePath) {
+    const adbArgs = ctx.device ? ['-s', ctx.device] : (meta.device ? ['-s', meta.device as string] : []);
+    try {
+      // Kill screenrecord on device (sends SIGINT which finalizes the mp4)
+      execSync(`adb ${adbArgs.join(' ')} shell pkill -INT screenrecord`, { stdio: 'ignore', timeout: 5000 });
+      // Wait for file to finalize
+      sleepSync(2000);
+      // Pull recording from device
+      const localPath = join(runDir, 'recording.mp4');
+      execSync(`adb ${adbArgs.join(' ')} pull ${meta.videoDevicePath as string} ${localPath}`, { stdio: 'ignore', timeout: 30000 });
+      // Clean up device file
+      execSync(`adb ${adbArgs.join(' ')} shell rm -f ${meta.videoDevicePath as string}`, { stdio: 'ignore', timeout: 5000 });
+      meta.video = 'recording.mp4';
+    } catch { /* best-effort — video pull failed */ }
+    delete meta.videoPid;
+    delete meta.videoDevicePath;
+  }
+
   writeFileSync(metaPath, JSON.stringify(meta));
+}
+
+function sleepSync(ms: number): void {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { /* busy wait */ }
 }
 
 function findDir(runDir: string, runId: string): string {
