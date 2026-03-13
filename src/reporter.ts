@@ -167,12 +167,23 @@ function escHtml(str: string | undefined | null): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function formatDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (m < 60) return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
 // ── v2 report generator (VerifyResult → HTML) ──
 import type { VerifyResult, VerifyStepResult } from './verify.ts';
 
 export function generateReportV2(runResult: VerifyResult, runDir: string, options: ReportOptions = {}): string {
   const outputPath = options.output ?? join(runDir, 'report.html');
   const screenshotData: Map<string, string> = new Map();
+  // 1. Collect screenshots from artifact events
   for (const step of runResult.steps) {
     for (const ev of step.events as Array<Record<string, unknown>>) {
       if (ev.type === 'artifact' && ev.path) {
@@ -180,27 +191,48 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
       }
     }
   }
+  // 2. Auto-detect screenshots by step ID pattern (step-S1.png, step-S2.png, etc.)
+  for (const step of runResult.steps) {
+    if (screenshotData.has(`step-${step.id}.png`)) continue;
+    const patterns = [`step-${step.id}.png`, `step-${step.id}.jpg`, `${step.id}.png`, `${step.id}.jpg`];
+    for (const p of patterns) {
+      const candidate = join(runDir, p);
+      if (existsSync(candidate)) {
+        try { screenshotData.set(`step-${step.id}.png`, readFileSync(candidate).toString('base64')); } catch { /* skip */ }
+        break;
+      }
+    }
+  }
+  // 3. Detect video
   let videoBase64 = '';
   const videoPath = join(runDir, 'recording.mp4');
   if (existsSync(videoPath)) {
     try { videoBase64 = readFileSync(videoPath).toString('base64'); } catch { /* not available */ }
   }
-  const html = buildHtmlV2(runResult, screenshotData, videoBase64);
+  // 4. Compute duration from event timestamps
+  let durationMs = 0;
+  const allEvents = runResult.steps.flatMap(s => s.events as Array<Record<string, unknown>>);
+  const timestamps = allEvents.map(e => e.ts as string).filter(Boolean).map(t => new Date(t).getTime()).filter(t => !isNaN(t));
+  if (timestamps.length >= 2) {
+    durationMs = Math.max(...timestamps) - Math.min(...timestamps);
+  }
+  const html = buildHtmlV2(runResult, screenshotData, videoBase64, durationMs);
   writeFileSync(outputPath, html);
   return outputPath;
 }
 
-export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> = new Map(), videoBase64: string = ''): string {
+export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> = new Map(), videoBase64: string = '', durationMs: number = 0): string {
   const passCount = run.steps.filter(s => s.outcome === 'pass').length;
   const failCount = run.steps.filter(s => s.outcome === 'fail').length;
   const skipCount = run.steps.filter(s => s.outcome === 'skipped').length;
   const resultClass = run.result === 'pass' ? 'pass' : 'fail';
+  const durationStr = durationMs > 0 ? formatDuration(durationMs) : '';
 
   const renderStep = (s: VerifyResult['steps'][0], i: number): string => {
     const icon = s.outcome === 'pass' ? '&#10003;' : s.outcome === 'fail' ? '&#10007;' : '&#9675;';
     const cls = s.outcome === 'pass' ? 'pass' : s.outcome === 'fail' ? 'fail' : 'skip';
     const artifact = (s.events as Array<Record<string, unknown>>).find(e => e.type === 'artifact' && e.path);
-    const imgB64 = artifact?.path ? screenshots.get(artifact.path as string) : undefined;
+    const imgB64 = artifact?.path ? screenshots.get(artifact.path as string) : screenshots.get(`step-${s.id}.png`);
     const expects = ((s.expectations || []) as Array<Record<string, unknown>>).map(e => {
       const met = e.met ? '&#10003;' : '&#10007;';
       return `<span class="expect ${e.met ? 'met' : 'unmet'}">${met} ${escHtml(e.milestone as string)}</span>`;
@@ -275,7 +307,7 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
 <body>
 <div class="header">
   <h1>${escHtml(run.flow)}</h1>
-  <div class="meta">mode: ${escHtml(run.mode)} &middot; ${run.steps.length} steps</div>
+  <div class="meta">mode: ${escHtml(run.mode)} &middot; ${run.steps.length} steps${durationStr ? ` &middot; ${durationStr}` : ''}</div>
   <span class="badge ${resultClass}">${run.result}</span>
   <div class="stats">
     <span class="stat"><span class="dot pass"></span> ${passCount} pass</span>
