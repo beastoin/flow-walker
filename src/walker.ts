@@ -2,7 +2,7 @@ import type { WalkerConfig, SnapshotElement } from './types.ts';
 import { computeFingerprint, deriveScreenName } from './fingerprint.ts';
 import { filterSafe } from './safety.ts';
 import { NavigationGraph } from './graph.ts';
-import { generateFlows, writeFlows } from './yaml-writer.ts';
+import { generateFlows, generateFlowsV2, writeFlows, writeFlowsV2 } from './yaml-writer.ts';
 import { AgentBridge } from './agent-bridge.ts';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
 import { writeFileSync } from 'node:fs';
@@ -97,8 +97,9 @@ export async function walk(config: WalkerConfig): Promise<WalkResult> {
     }
 
     // Always write results (even partial) so we capture what was discovered
-    const flows = generateFlows(graph);
-    const flowFiles = writeFlows(flows, config.outputDir);
+    // Generate v2 flows (agent-first format)
+    const v2Flows = generateFlowsV2(graph);
+    const flowFiles = writeFlowsV2(v2Flows, config.outputDir);
 
     const graphPath = join(config.outputDir, '_nav-graph.json');
     writeFileSync(graphPath, JSON.stringify(graph.toJSON(), null, 2));
@@ -106,12 +107,12 @@ export async function walk(config: WalkerConfig): Promise<WalkResult> {
 
     log(config, `\n=== Walk complete ===`);
     log(config, `Screens: ${graph.screenCount()}`);
-    log(config, `Flows: ${flows.length}`);
+    log(config, `Flows: ${v2Flows.length}`);
     log(config, `Files: ${flowFiles.join(', ')}`);
 
     return {
       screensFound: graph.screenCount(),
-      flowsGenerated: flows.length,
+      flowsGenerated: v2Flows.length,
       elementsSkipped: totalSkipped,
       flowFiles,
     };
