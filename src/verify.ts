@@ -42,7 +42,7 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
     const endEvent = evs.find(e => e.type === 'step.end');
     let outcome: 'pass' | 'fail' | 'skipped' | 'recovered' = 'fail';
     if (endEvent) {
-      const status = endEvent.status as string;
+      const status = (endEvent.outcome ?? endEvent.status) as string;
       if (status === 'pass') outcome = 'pass';
       else if (status === 'skipped') outcome = 'skipped';
       else if (status === 'recovered') outcome = 'recovered';
