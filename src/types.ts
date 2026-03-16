@@ -76,7 +76,7 @@ export interface FlowV2Expect {
   values?: string[];
 }
 
-export interface FlowV2Evidence { screenshot?: string; }
+export interface FlowV2Evidence { screenshot?: string; video?: boolean; }
 
 export interface FlowV2Step {
   id: string;
@@ -86,6 +86,7 @@ export interface FlowV2Step {
   expect?: FlowV2Expect[];
   evidence?: FlowV2Evidence[];
   note?: string;
+  verify?: boolean;
 }
 
 export interface FlowV2 {
@@ -97,6 +98,7 @@ export interface FlowV2 {
   covers?: string[];
   preconditions?: string[];
   defaults?: { timeout_ms?: number; retries?: number; vision?: string };
+  evidence?: { video?: boolean };
   steps: FlowV2Step[];
 }
 

@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { COMMAND_SCHEMAS, getCommandSchema, getSchemaEnvelope, SCHEMA_VERSION } from '../src/command-schema.ts';
 
 describe('COMMAND_SCHEMAS', () => {
-  it('contains all 8 v2 commands', () => {
+  it('contains all 9 commands', () => {
     const names = COMMAND_SCHEMAS.map(s => s.name);
-    for (const cmd of ['walk', 'record', 'verify', 'report', 'push', 'get', 'migrate', 'schema']) {
+    for (const cmd of ['walk', 'record', 'verify', 'report', 'push', 'get', 'migrate', 'snapshot', 'schema']) {
       assert.ok(names.includes(cmd), `missing ${cmd}`);
     }
-    assert.equal(COMMAND_SCHEMAS.length, 8);
+    assert.equal(COMMAND_SCHEMAS.length, 9);
   });
   it('does not include legacy run command', () => {
     assert.equal(getCommandSchema('run'), undefined);

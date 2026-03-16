@@ -145,7 +145,7 @@ function renderStep(step: StepResult, index: number, screenshots: Map<string, st
 
   let thumbHtml = '';
   if (step.screenshot && screenshots.has(step.screenshot)) {
-    thumbHtml = `<img class="step-thumb" src="data:image/png;base64,${screenshots.get(step.screenshot)}" alt="Step ${index + 1}">`;
+    thumbHtml = `<img class="step-thumb" src="data:${imgMime(step.screenshot)};base64,${screenshots.get(step.screenshot)}" alt="Step ${index + 1}">`;
   }
 
   return `    <div class="step ${statusClass}" data-time="${timeSec}" onclick="jumpTo(${timeSec}, this)">
@@ -165,6 +165,12 @@ function renderStep(step: StepResult, index: number, screenshots: Map<string, st
 function escHtml(str: string | undefined | null): string {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function imgMime(filename: string): string {
+  if (filename.endsWith('.webp')) return 'image/webp';
+  if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) return 'image/jpeg';
+  return 'image/png';
 }
 
 function formatDuration(ms: number): string {
@@ -191,14 +197,15 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
       }
     }
   }
-  // 2. Auto-detect screenshots by step ID pattern (step-S1.png, step-S2.png, etc.)
+  // 2. Auto-detect screenshots by step ID pattern (step-S1.webp, step-S1.png, step-S1.jpg, etc.)
   for (const step of runResult.steps) {
-    if (screenshotData.has(`step-${step.id}.png`)) continue;
-    const patterns = [`step-${step.id}.png`, `step-${step.id}.jpg`, `${step.id}.png`, `${step.id}.jpg`];
+    const key = `step-${step.id}`;
+    if (screenshotData.has(`${key}.webp`) || screenshotData.has(`${key}.png`)) continue;
+    const patterns = [`${key}.webp`, `${key}.png`, `${key}.jpg`, `${step.id}.webp`, `${step.id}.png`, `${step.id}.jpg`];
     for (const p of patterns) {
       const candidate = join(runDir, p);
       if (existsSync(candidate)) {
-        try { screenshotData.set(`step-${step.id}.png`, readFileSync(candidate).toString('base64')); } catch { /* skip */ }
+        try { screenshotData.set(p, readFileSync(candidate).toString('base64')); } catch { /* skip */ }
         break;
       }
     }
@@ -232,7 +239,8 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
     const icon = s.outcome === 'pass' ? '&#10003;' : s.outcome === 'fail' ? '&#10007;' : '&#9675;';
     const cls = s.outcome === 'pass' ? 'pass' : s.outcome === 'fail' ? 'fail' : 'skip';
     const artifact = (s.events as Array<Record<string, unknown>>).find(e => e.type === 'artifact' && e.path);
-    const imgB64 = artifact?.path ? screenshots.get(artifact.path as string) : screenshots.get(`step-${s.id}.png`);
+    const imgKey = artifact?.path as string || [`step-${s.id}.webp`, `step-${s.id}.png`, `step-${s.id}.jpg`].find(k => screenshots.has(k)) || `step-${s.id}.png`;
+    const imgB64 = screenshots.get(imgKey);
     const expects = ((s.expectations || []) as Array<Record<string, unknown>>).map(e => {
       const met = e.met ? '&#10003;' : '&#10007;';
       return `<span class="expect ${e.met ? 'met' : 'unmet'}">${met} ${escHtml(e.milestone as string)}</span>`;
@@ -247,7 +255,7 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
       </div>
       <div class="step-do">${escHtml(s.do)}</div>
       ${expects ? `<div class="step-expects">${expects}</div>` : ''}
-      ${imgB64 ? `<img class="step-screenshot" src="data:image/png;base64,${imgB64}" alt="${escHtml(s.id)} screenshot" />` : ''}
+      ${imgB64 ? `<img class="step-screenshot" src="data:${imgMime(imgKey)};base64,${imgB64}" alt="${escHtml(s.id)} screenshot" />` : ''}
     </div>`;
   };
 

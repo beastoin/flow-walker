@@ -1,12 +1,14 @@
-import { mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync, unlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync, unlinkSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
 import { validateEvent } from './event-schema.ts';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
+import { loadSnapshot, saveSnapshot } from './snapshot.ts';
+import type { ReplayPlan } from './snapshot.ts';
 
 export interface RecordInitOptions { flowPath: string; outputDir: string; runId?: string; noVideo?: boolean; device?: string; }
-export interface RecordInitResult { id: string; dir: string; video?: boolean; }
+export interface RecordInitResult { id: string; dir: string; video?: boolean; replay?: ReplayPlan; }
 
 export function recordInit(opts: RecordInitOptions): RecordInitResult {
   const id = opts.runId || randomBytes(5).toString('base64url').slice(0, 10);
@@ -22,7 +24,7 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
     try {
       const adbArgs = opts.device ? ['-s', opts.device] : [];
       const deviceRecordPath = `/sdcard/fw-${id}.mp4`;
-      const proc = spawn('adb', [...adbArgs, 'shell', 'screenrecord', '--size', '720x1280', '--bit-rate', '2000000', deviceRecordPath], {
+      const proc = spawn('adb', [...adbArgs, 'shell', 'screenrecord', '--time-limit', '0', '--size', '720x1280', '--bit-rate', '2000000', deviceRecordPath], {
         stdio: 'ignore', detached: true,
       });
       proc.unref();
@@ -36,7 +38,16 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
 
   writeFileSync(join(runDir, 'run.meta.json'), JSON.stringify(meta));
   writeFileSync(join(runDir, 'events.jsonl'), '');
-  return { id, dir: runDir, video: videoStarted };
+
+  // Auto-load snapshot: if a replay plan exists, include it so agents can use cached coordinates
+  let replay: ReplayPlan | undefined;
+  try {
+    const device = opts.device || process.env.AGENT_FLUTTER_DEVICE || undefined;
+    const plan = loadSnapshot({ flowPath: opts.flowPath, device });
+    if (plan.valid && plan.mode === 'replay') replay = plan;
+  } catch { /* no snapshot or invalid — explore mode */ }
+
+  return { id, dir: runDir, video: videoStarted, replay };
 }
 
 export function recordStream(ctx: { runId: string; runDir: string }, lines: string[]): number {
@@ -58,7 +69,9 @@ export function recordStream(ctx: { runId: string; runDir: string }, lines: stri
   return count;
 }
 
-export function recordFinish(ctx: { runId: string; runDir: string; status: string; device?: string }): void {
+export interface RecordFinishResult { snapshotSaved?: boolean; snapshotSteps?: number; }
+
+export function recordFinish(ctx: { runId: string; runDir: string; status: string; device?: string; flowPath?: string; flowVerifySteps?: string[] }): RecordFinishResult {
   const runDir = findDir(ctx.runDir, ctx.runId);
   const metaPath = join(runDir, 'run.meta.json');
   const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
@@ -77,10 +90,22 @@ export function recordFinish(ctx: { runId: string; runDir: string; status: strin
       // Wait for file to finalize
       sleepSync(2000);
       // Pull recording from device
+      const rawPath = join(runDir, 'recording-raw.mp4');
       const localPath = join(runDir, 'recording.mp4');
-      execSync(`adb ${adbArgs.join(' ')} pull ${meta.videoDevicePath as string} ${localPath}`, { stdio: 'ignore', timeout: 30000 });
+      execSync(`adb ${adbArgs.join(' ')} pull ${meta.videoDevicePath as string} ${rawPath}`, { stdio: 'ignore', timeout: 30000 });
       // Clean up device file
       execSync(`adb ${adbArgs.join(' ')} shell rm -f ${meta.videoDevicePath as string}`, { stdio: 'ignore', timeout: 5000 });
+      // Compress with ffmpeg (best-effort — fall back to raw if ffmpeg unavailable)
+      try {
+        execSync(`ffmpeg -y -i ${rawPath} -c:v libx264 -crf 28 -preset fast -vf scale=720:-2 -an ${localPath}`, { stdio: 'ignore', timeout: 120000 });
+        unlinkSync(rawPath);
+      } catch {
+        // ffmpeg not available or failed — use raw file as-is
+        if (existsSync(rawPath)) {
+          if (existsSync(localPath)) unlinkSync(localPath);
+          renameSync(rawPath, localPath);
+        }
+      }
       meta.video = 'recording.mp4';
     } catch { /* best-effort — video pull failed */ }
     delete meta.videoPid;
@@ -88,6 +113,17 @@ export function recordFinish(ctx: { runId: string; runDir: string; status: strin
   }
 
   writeFileSync(metaPath, JSON.stringify(meta));
+
+  // Auto-save snapshot on successful run
+  const result: RecordFinishResult = {};
+  if (ctx.status === 'pass' && ctx.flowPath) {
+    try {
+      const snap = saveSnapshot({ flowPath: ctx.flowPath, runDir, device: ctx.device, flowVerifySteps: ctx.flowVerifySteps });
+      result.snapshotSaved = true;
+      result.snapshotSteps = Object.keys(snap.steps).length;
+    } catch { /* best-effort — snapshot save failed */ }
+  }
+  return result;
 }
 
 function sleepSync(ms: number): void {

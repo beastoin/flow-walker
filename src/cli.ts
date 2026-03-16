@@ -10,6 +10,7 @@ import { recordInit, recordStream, recordFinish } from './record.ts';
 import { verifyRun } from './verify.ts';
 import type { VerifyResult } from './verify.ts';
 import { migrateFlowV1toV2 } from './migrate.ts';
+import { saveSnapshot, loadSnapshot } from './snapshot.ts';
 import { generateReportV2 } from './reporter.ts';
 import { FlowWalkerError, ErrorCodes, formatError } from './errors.ts';
 import { validateFlowPath, validateOutputDir, validateUri, validateBundleId } from './validate.ts';
@@ -32,6 +33,7 @@ Usage:
   flow-walker push <run-dir>                  Upload report and return shareable URL
   flow-walker get <run-id>                    Fetch run data from hosted service
   flow-walker migrate <flow.yaml>             Migrate v1 flow to v2 format
+  flow-walker snapshot <save|load>             Save/load flow replay snapshots
   flow-walker schema [command]                Show command schema for agent discovery
 `);
 }
@@ -50,6 +52,7 @@ async function main(): Promise<void> {
       'help': { type: 'boolean', default: false }, 'version': { type: 'boolean', default: false },
       'flow': { type: 'string' }, 'run-id': { type: 'string' }, 'run-dir': { type: 'string' },
       'status': { type: 'string' }, 'mode': { type: 'string' }, 'events': { type: 'string' },
+      'device': { type: 'string' }, 'resolution': { type: 'string' },
     },
   });
   const subcommand = positionals[0];
@@ -69,8 +72,9 @@ async function main(): Promise<void> {
     else if (subcommand === 'push') await handlePush(positionals, json);
     else if (subcommand === 'get') await handleGet(positionals, json);
     else if (subcommand === 'migrate') await handleMigrate(values, positionals, json);
+    else if (subcommand === 'snapshot') handleSnapshotCmd(values, positionals, json);
     else if (subcommand === 'schema') handleSchema(positionals);
-    else throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Unknown subcommand: ${subcommand}`, 'Available: walk, record, verify, report, push, get, migrate, schema');
+    else throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Unknown subcommand: ${subcommand}`, 'Available: walk, record, verify, report, push, get, migrate, snapshot, schema');
   } catch (err) { console.error(formatError(err, json)); process.exit(2); }
 }
 async function handleWalk(values: Record<string, unknown>, _positionals: string[], json: boolean, agentPath: string, dryRun: boolean): Promise<void> {
@@ -109,7 +113,15 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     const noVideo = values['no-video'] as boolean;
     const device = process.env.AGENT_FLUTTER_DEVICE || undefined;
     const result = recordInit({ flowPath, outputDir, runId: values['run-id'] as string | undefined, noVideo, device });
-    console.log(json ? JSON.stringify(result) : `Run initialized: ${result.id}\n  Directory: ${result.dir}${result.video ? '\n  Video: recording' : ''}`);
+    if (json) {
+      console.log(JSON.stringify(result));
+    } else {
+      let msg = `Run initialized: ${result.id}\n  Directory: ${result.dir}`;
+      if (result.video) msg += '\n  Video: recording';
+      if (result.replay) msg += `\n  Replay: snapshot found — ${Object.keys(result.replay.steps!).length} cached steps, verify: [${result.replay.verifySteps!.join(', ')}]`;
+      else msg += '\n  Replay: no snapshot — explore mode (snapshot will be saved on pass)';
+      console.log(msg);
+    }
     process.exit(0);
   }
   if (sub === 'stream') {
@@ -136,8 +148,24 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     if (!runId) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-id');
     if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-dir');
     const finishDevice = process.env.AGENT_FLUTTER_DEVICE || undefined;
-    recordFinish({ runId, runDir, status, device: finishDevice });
-    console.log(json ? JSON.stringify({ status, finished: true }) : `Run ${runId} finished: ${status}`);
+    const flowPath = values['flow'] as string | undefined;
+    let flowVerifySteps: string[] | undefined;
+    if (flowPath) {
+      try {
+        const parsed = parseFlowFile(flowPath);
+        if ('version' in parsed && (parsed as FlowV2).version === 2) {
+          flowVerifySteps = (parsed as FlowV2).steps.filter(s => s.verify).map(s => s.id);
+        }
+      } catch { /* skip */ }
+    }
+    const finishResult = recordFinish({ runId, runDir, status, device: finishDevice, flowPath, flowVerifySteps });
+    if (json) {
+      console.log(JSON.stringify({ status, finished: true, ...finishResult }));
+    } else {
+      let msg = `Run ${runId} finished: ${status}`;
+      if (finishResult.snapshotSaved) msg += `\n  Snapshot saved: ${finishResult.snapshotSteps} steps (next run will use cached coordinates)`;
+      console.log(msg);
+    }
     process.exit(0);
   }
 }
@@ -196,6 +224,41 @@ async function handleGet(positionals: string[], json: boolean): Promise<void> {
   const data = await getRunData(runId, { apiUrl: process.env.FLOW_WALKER_API_URL });
   console.log(json ? JSON.stringify(data) : JSON.stringify(data, null, 2));
   process.exit(0);
+}
+function handleSnapshotCmd(values: Record<string, unknown>, positionals: string[], json: boolean): void {
+  const sub = positionals[1];
+  if (!sub || !['save', 'load'].includes(sub)) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot requires: save or load');
+  if (sub === 'save') {
+    const flowPath = values['flow'] as string;
+    const runDir = values['run-dir'] as string;
+    if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot save requires --flow <path>');
+    if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot save requires --run-dir <path>');
+    validateFlowPath(flowPath);
+    const device = (values['device'] as string) || process.env.AGENT_FLUTTER_DEVICE || undefined;
+    const resolution = (values['resolution'] as string) || undefined;
+    // Extract flow-defined verify steps from YAML
+    const parsed = parseFlowFile(flowPath);
+    const flowVerifySteps = ('version' in parsed && parsed.version === 2)
+      ? (parsed as FlowV2).steps.filter(s => s.verify).map(s => s.id)
+      : undefined;
+    const snapshot = saveSnapshot({ flowPath, runDir, device, resolution, flowVerifySteps });
+    const stepCount = Object.keys(snapshot.steps).length;
+    console.log(json ? JSON.stringify({ saved: true, path: `${flowPath.replace(/\.(yaml|yml)$/, '')}.snapshot.json`, steps: stepCount, verifySteps: snapshot.verifySteps.length }) : `Snapshot saved: ${stepCount} steps, ${snapshot.verifySteps.length} verify steps`);
+    process.exit(0);
+  }
+  if (sub === 'load') {
+    const flowPath = values['flow'] as string;
+    if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot load requires --flow <path>');
+    validateFlowPath(flowPath);
+    const device = (values['device'] as string) || process.env.AGENT_FLUTTER_DEVICE || undefined;
+    const plan = loadSnapshot({ flowPath, device });
+    if (json) console.log(JSON.stringify(plan));
+    else {
+      if (plan.mode === 'replay') console.log(`Replay plan: ${Object.keys(plan.steps!).length} steps, ${plan.verifySteps!.length} verify steps, ~${plan.totalDurationMs}ms`);
+      else console.log(`No replay: ${plan.reason}`);
+    }
+    process.exit(0);
+  }
 }
 function handleSchema(positionals: string[]): void {
   const name = positionals[1];

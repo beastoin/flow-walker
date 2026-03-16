@@ -83,12 +83,12 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
   const lines = yamlContent.split('\n');
   const flow: Partial<FlowV2> = { steps: [] };
   let currentStep: Partial<FlowV2Step> & Record<string, unknown> = {};
-  let inSteps = false, inCovers = false, inPreconditions = false, inExpect = false, inEvidence = false, inAnchors = false, inDefaults = false;
+  let inSteps = false, inCovers = false, inPreconditions = false, inExpect = false, inEvidence = false, inAnchors = false, inDefaults = false, inFlowEvidence = false;
   for (const rawLine of lines) {
     const line = rawLine.trimEnd();
     if (line.startsWith('#') || line.trim() === '') continue;
     if (!line.startsWith(' ') && !line.startsWith('\t')) {
-      inCovers = false; inPreconditions = false; inExpect = false; inEvidence = false; inAnchors = false; inDefaults = false;
+      inCovers = false; inPreconditions = false; inExpect = false; inEvidence = false; inAnchors = false; inDefaults = false; inFlowEvidence = false;
       if (line.startsWith('version:')) flow.version = parseInt(pv(line.slice(8)), 10) as 2;
       else if (line.startsWith('name:')) flow.name = pv(line.slice(5));
       else if (line.startsWith('description:')) flow.description = pv(line.slice(12));
@@ -97,6 +97,7 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
       else if (line.startsWith('covers:')) { inCovers = true; flow.covers = []; }
       else if (line.startsWith('preconditions:')) { inPreconditions = true; flow.preconditions = []; }
       else if (line.startsWith('defaults:')) { inDefaults = true; flow.defaults = {}; }
+      else if (line.startsWith('evidence:')) { inFlowEvidence = true; flow.evidence = {}; }
       else if (line.startsWith('steps:')) inSteps = true;
       continue;
     }
@@ -105,6 +106,10 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
       if (t.startsWith('timeout_ms:')) flow.defaults!.timeout_ms = parseInt(pv(t.slice(11)), 10);
       else if (t.startsWith('retries:')) flow.defaults!.retries = parseInt(pv(t.slice(8)), 10);
       else if (t.startsWith('vision:')) flow.defaults!.vision = pv(t.slice(7));
+      continue;
+    }
+    if (inFlowEvidence && !inSteps) {
+      if (t.startsWith('video:')) flow.evidence!.video = pv(t.slice(6)) === 'true';
       continue;
     }
     if (inCovers && t.startsWith('- ')) { flow.covers!.push(pv(t.slice(2))); continue; }
@@ -131,7 +136,8 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
       if (rest.startsWith('milestone:')) ei.milestone = pv(rest.slice(10));
       else if (rest.startsWith('kind:')) ei.kind = pv(rest.slice(5));
       (currentStep.expect as FlowV2Expect[]).push(ei as FlowV2Expect);
-    } else if (inExpect && !t.startsWith('- ')) {
+    } else if (t.startsWith('evidence:')) { inEvidence = true; inExpect = false; inAnchors = false; currentStep.evidence = []; }
+    else if (inExpect && !t.startsWith('- ')) {
       const last = (currentStep.expect as FlowV2Expect[])?.at(-1);
       if (last) {
         const r = last as Record<string, unknown>;
@@ -141,13 +147,14 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
         if (t.startsWith('min:')) r.min = parseInt(pv(t.slice(4)), 10);
         if (t.startsWith('values:')) r.values = parseInlineArr(t.slice(7).trim());
       }
-    } else if (t.startsWith('evidence:')) { inEvidence = true; inExpect = false; inAnchors = false; currentStep.evidence = []; }
+    }
     else if (inEvidence && t.startsWith('- ')) {
       const rest = t.slice(2).trim();
       const ei: Partial<FlowV2Evidence> = {};
       if (rest.startsWith('screenshot:')) ei.screenshot = pv(rest.slice(11));
       (currentStep.evidence as FlowV2Evidence[]).push(ei as FlowV2Evidence);
-    } else if (t.startsWith('note:')) currentStep.note = pv(t.slice(5));
+    } else if (t.startsWith('verify:')) currentStep.verify = pv(t.slice(7)) === 'true';
+    else if (t.startsWith('note:')) currentStep.note = pv(t.slice(5));
     else { for (const key of LEGACY_STEP_KEYS) { if (t.startsWith(`${key}:`)) currentStep[key] = t.slice(key.length + 1).trim(); } }
   }
   if (currentStep.id) flow.steps!.push(currentStep as unknown as FlowV2Step);

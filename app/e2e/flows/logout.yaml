@@ -1,0 +1,76 @@
+version: 2
+name: logout
+description: Sign out from authenticated home screen
+app: com.friend.ios.dev
+evidence:
+  video: true
+
+steps:
+  - id: S1
+    name: Verify home screen
+    do: verify home screen is showing with authenticated state
+    expect:
+      - milestone: home screen visible
+        kind: screen
+      - milestone: 4+ interactive widgets
+        kind: interactive_count
+        min: 4
+    evidence:
+      - screenshot: step-S1.webp
+
+  - id: S2
+    name: Tap settings gear
+    do: press settings gear icon (rightmost button in top bar)
+    expect:
+      - milestone: settings drawer opens
+        kind: screen
+    evidence:
+      - screenshot: step-S2.webp
+
+  - id: S3
+    name: Verify Sign Out visible
+    do: scroll down in settings drawer if needed
+    expect:
+      - milestone: Sign Out menu item visible
+        kind: text_visible
+        values: ["Sign Out"]
+    evidence:
+      - screenshot: step-S3.webp
+
+  - id: S4
+    name: Tap Sign Out
+    do: press Sign Out menu item
+    expect:
+      - milestone: confirmation dialog appears
+        kind: screen
+    evidence:
+      - screenshot: step-S4.webp
+
+  - id: S5
+    name: Verify confirmation dialog
+    do: verify confirmation dialog content
+    expect:
+      - milestone: dialog title and buttons visible
+        kind: text_visible
+        values: ["Sign Out?", "Cancel", "Ok"]
+    evidence:
+      - screenshot: step-S5.webp
+
+  - id: S6
+    name: Confirm sign out
+    do: press Ok button on confirmation dialog
+    expect:
+      - milestone: sign out completes
+        kind: navigation
+    evidence:
+      - screenshot: step-S6.webp
+
+  - id: S7
+    name: Verify auth screen
+    do: verify returned to auth/login screen
+    expect:
+      - milestone: Sign in with Google button visible
+        kind: text_visible
+        values: ["Sign in with Google"]
+    evidence:
+      - screenshot: step-S7.webp

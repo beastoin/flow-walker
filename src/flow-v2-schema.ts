@@ -31,7 +31,7 @@ export function buildScaffoldFlow(name: string): FlowV2 {
       do: `Open the ${name} screen`,
       anchors: [name],
       expect: [{ milestone: `${name}-visible`, outcome: 'pass' }],
-      evidence: [{ screenshot: `${name}.png` }],
+      evidence: [{ screenshot: `${name}.webp` }],
     }],
   };
 }

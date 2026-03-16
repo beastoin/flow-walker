@@ -161,6 +161,7 @@ export function toYamlV2(flow: FlowV2): string {
     if (step.anchors?.length) lines.push(`    anchors: [${step.anchors.join(', ')}]`);
     if (step.expect?.length) { lines.push('    expect:'); for (const e of step.expect) { lines.push(`      - milestone: ${e.milestone || 'check'}`); if (e.kind) lines.push(`        kind: ${e.kind}`); if (e.outcome) lines.push(`        outcome: ${e.outcome}`); if (e.min !== undefined) lines.push(`        min: ${e.min}`); if (e.values?.length) lines.push(`        values: [${e.values.join(', ')}]`); } }
     if (step.evidence?.length) { lines.push('    evidence:'); for (const e of step.evidence) { if (e.screenshot) lines.push(`      - screenshot: ${e.screenshot}`); } }
+    if (step.verify) lines.push(`    verify: true`);
     if (step.note) lines.push(`    note: ${step.note}`);
   }
   return lines.join('\n') + '\n';

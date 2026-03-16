@@ -59,7 +59,7 @@ function convExpect(step: FlowStep): FlowV2Expect[] {
 }
 
 function convEvidence(step: FlowStep): FlowV2Evidence[] {
-  if (step.screenshot) return [{ screenshot: `${step.screenshot}.png` }];
+  if (step.screenshot) return [{ screenshot: `${step.screenshot}.webp` }];
   return [];
 }
 

@@ -18,7 +18,7 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
       { name: '--dry-run', type: 'boolean', description: 'Snapshot without pressing' },
       { name: '--skip-connect', type: 'boolean', description: 'Use existing session' },
     ] },
-  { name: 'record', description: 'Record agent execution events. init starts video recording automatically (use --no-video to disable). finish stops video and pulls recording.mp4 into run dir. Agent should save screenshots as step-{step_id}.png in run dir after each step for report embedding.', args: [{ name: 'sub', required: true, description: 'init, stream, or finish' }],
+  { name: 'record', description: 'Record agent execution events. Workflow: (1) record init --flow <yaml> → returns run ID + replay plan if snapshot exists. If replay.mode is "replay", use replay.steps[id].center coordinates for cached steps and only do full exploration for replay.verifySteps. If no snapshot, explore all steps normally. (2) record stream events with enriched action data (element_ref, element_text, element_type, element_bounds, ts). (3) record finish --status pass --flow <yaml> → auto-saves snapshot for next run. Screenshots: step-{step_id}.webp (preferred, q70) via: adb exec-out screencap -p > /tmp/raw.png && cwebp -q 70 -resize 270 600 /tmp/raw.png -o <run-dir>/step-S1.webp', args: [{ name: 'sub', required: true, description: 'init, stream, or finish' }],
     flags: [
       { name: '--flow', type: 'path', description: 'Flow YAML path (init)' },
       { name: '--output-dir', type: 'path', description: 'Output directory', default: './runs/' },
@@ -44,6 +44,14 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
     flags: [{ name: '--json', type: 'boolean', description: 'JSON output' }] },
   { name: 'migrate', description: 'Migrate v1 flow to v2 format', args: [{ name: 'flow', required: true, description: 'Path to v1 flow YAML' }],
     flags: [{ name: '--output', type: 'path', description: 'Output file path' }, { name: '--json', type: 'boolean', description: 'JSON output' }] },
+  { name: 'snapshot', description: 'Save/load flow replay snapshots for fast re-execution. save extracts coordinates, timing, and commands from a successful run. load returns a replay plan so agents skip UI exploration and use exact coordinates.', args: [{ name: 'sub', required: true, description: 'save or load' }],
+    flags: [
+      { name: '--flow', type: 'path', description: 'Flow YAML path' },
+      { name: '--run-dir', type: 'path', description: 'Run directory (save only)' },
+      { name: '--device', type: 'string', description: 'Device model for snapshot binding' },
+      { name: '--resolution', type: 'string', description: 'Device resolution (save only)' },
+      { name: '--json', type: 'boolean', description: 'JSON output' },
+    ] },
   { name: 'schema', description: 'Show command schema for agent discovery', args: [{ name: 'command', required: false, description: 'Command name' }], flags: [] },
 ];
 export function getCommandSchema(name: string): CommandSchema | undefined { return COMMAND_SCHEMAS.find(s => s.name === name); }

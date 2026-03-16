@@ -518,9 +518,9 @@ async function returnToRoot(
   knownRootFingerprints?: Set<string>,
 ): Promise<boolean> {
   let lowElementStreak = 0; // Track consecutive low-element snapshots
-  let triedBottomNav = false; // Only try bottom nav once per returnToRoot call
-  // Max 5 back presses — any more and we risk exiting the app
-  for (let i = 0; i < 5; i++) {
+  let bottomNavAttempts = 0; // Track home tab press attempts (allow up to 2)
+  // Max 6 attempts — any more and we risk exiting the app
+  for (let i = 0; i < 6; i++) {
     let snapshot;
     try {
       snapshot = bridge.snapshot();
@@ -595,10 +595,13 @@ async function returnToRoot(
 
     // If this screen has bottom nav and we know the home tab position,
     // try pressing the home tab instead of back() (back() on bottom nav exits the app).
-    // Only try once per returnToRoot call — if it doesn't work, fall through to back().
-    if (!triedBottomNav && homeTabBounds && snapshot.elements.length >= 10) {
+    // Allow up to 2 home tab attempts: first before any back(), second after a back().
+    if (bottomNavAttempts < 2 && homeTabBounds && snapshot.elements.length >= 10) {
+      // Use relative position: bottom nav is typically in the bottom 15% of screen
+      const maxY = Math.max(...snapshot.elements.filter(e => e.bounds).map(e => e.bounds!.y + e.bounds!.height));
+      const bottomThreshold = maxY > 0 ? maxY * 0.85 : 780;
       const bottomNavEls = snapshot.elements.filter(
-        e => e.bounds && e.bounds.y > 780 && e.bounds.height < 100,
+        e => e.bounds && e.bounds.y > bottomThreshold && e.bounds.height < 100,
       );
       if (bottomNavEls.length >= 3) {
         // Find element closest to root's home tab x position
@@ -607,9 +610,9 @@ async function returnToRoot(
           Math.abs((el.bounds?.x ?? 999) - targetX) < Math.abs((best.bounds?.x ?? 999) - targetX)
             ? el : best,
         );
-        if (closest.bounds && Math.abs(closest.bounds.x - targetX) < 20) {
-          triedBottomNav = true;
-          log(config, `  Pressing home tab (${closest.ref}) at x=${Math.round(closest.bounds.x)}`);
+        if (closest.bounds && Math.abs(closest.bounds.x - targetX) < 30) {
+          bottomNavAttempts++;
+          log(config, `  Pressing home tab (${closest.ref}) at x=${Math.round(closest.bounds.x)} [attempt ${bottomNavAttempts}]`);
           try {
             bridge.press(closest.ref);
             await sleep(1500);
