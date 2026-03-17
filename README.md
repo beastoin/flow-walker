@@ -1,246 +1,280 @@
 # flow-walker
 
-Auto-discover app flows, execute YAML test flows, generate HTML reports.
+Auto-explore apps, execute YAML test flows, and publish shareable HTML reports.
 
-flow-walker is the **flow layer** — it defines, discovers, executes, and reports on flows. It uses [agent-flutter](https://github.com/beastoin/agent-flutter) and [agent-swift](https://github.com/beastoin/agent-swift) as **transport layers** that control specific platforms.
+flow-walker is the **flow layer** — it defines, discovers, records, verifies, and reports on E2E flows. It uses [agent-flutter](https://github.com/beastoin/agent-flutter) and [agent-swift](https://github.com/beastoin/agent-swift) as **transport layers** for device interaction.
 
 ```
-flow-walker (flows: walk, run, report, push, get, schema)
-    |
-agent-flutter (Flutter apps on Android/iOS)
-agent-swift   (native macOS/iOS apps)
-    |
-devices
+flow-walker (flows + reporting)
+    │
+agent-flutter / agent-swift (device control)
+    │
+Android / iOS / macOS devices
 ```
 
-## Quick start
+**Live reports:** [flow-walker.beastoin.workers.dev](https://flow-walker.beastoin.workers.dev)
+
+## Install
 
 ```bash
 npm install -g flow-walker-cli
-
-# Explore app automatically
-flow-walker walk --app-uri ws://127.0.0.1:38047/abc=/ws
-
-# Execute a specific flow
-flow-walker run flows/tab-navigation.yaml
-
-# Generate HTML report
-flow-walker report ./run-output/<run-id>/
-
-# Share report (hosted)
-flow-walker push ./run-output/<run-id>/
-
-# Retrieve run data
-flow-walker get 25h7afGwBK
-
-# Discover commands (agent-first)
-flow-walker schema
-flow-walker schema run
-
-# Version
-flow-walker --version
 ```
 
-## Prerequisites
-
-- Node.js >= 22
-- [agent-flutter](https://github.com/beastoin/agent-flutter) installed and in PATH
-- Flutter app running with Marionette initialized
-- ADB connected (Android) or Simulator running (iOS)
+Requires Node.js >= 22, [agent-flutter](https://github.com/beastoin/agent-flutter) in PATH, and a Flutter app running in debug mode.
 
 ## Commands
 
-### `walk` — Auto-explore
+| Command | Description |
+|---------|-------------|
+| `walk` | Auto-explore app via BFS, generate YAML flows |
+| `record` | 3-phase recording: `init` → `stream` → `finish` |
+| `verify` | Verify recorded events against flow expectations |
+| `report` | Generate self-contained HTML report |
+| `push` | Upload report, get shareable URL |
+| `get` | Fetch run data from hosted service |
+| `snapshot` | Save/load replay data for fast re-execution |
+| `migrate` | Convert v1 flows to v2 format |
+| `schema` | Machine-readable command introspection |
 
-Discovers screens by pressing every interactive element, building a navigation graph, and generating YAML flow files.
+## Recording pipeline
 
-```bash
-flow-walker walk --app-uri ws://... --max-depth 3 --output-dir ./flows/
-flow-walker walk --skip-connect --json    # NDJSON: one event per line
-flow-walker walk --dry-run                # plan without pressing
-```
-
-### `run` — Execute flow
-
-Runs a YAML flow step-by-step. Each run gets a **unique ID** (10-char base64url like `P-tnB_sgKA`). Output goes to `<output-dir>/<run-id>/` so multiple runs never overwrite each other.
-
-```bash
-flow-walker run flows/tab-navigation.yaml
-# => Run ID: 25h7afGwBK
-# => Output: ./run-output/25h7afGwBK/
-
-flow-walker run flows/login.yaml --json   # machine-readable
-flow-walker run flows/settings.yaml --dry-run  # parse + resolve without executing
-```
-
-Output per run:
-- `run.json` — structured results with run ID, per-step status, timing, assertions
-- `recording.mp4` — screen recording with step timestamps
-- `step-N-*.png` — per-step screenshots
-- `device.log` — filtered device logs
-
-### `report` — Generate HTML viewer
-
-Self-contained HTML with embedded video, screenshots, and clickable step timeline.
+The primary workflow for E2E testing. An agent executes flow steps and streams events in real time.
 
 ```bash
-flow-walker report ./run-output/25h7afGwBK/
+# 1. Initialize — creates run directory and unique run ID
+flow-walker record init --flow flows/login.yaml --no-video --json
+# => {"id":"P-tnB_sgKA","dir":"runs/P-tnB_sgKA","video":false}
+
+# 2. Stream events — pipe NDJSON via stdin (one event per line)
+echo '{"type":"step.start","step_id":"S1","name":"Open app"}' | \
+  flow-walker record stream --run-id P-tnB_sgKA --run-dir runs/P-tnB_sgKA
+
+# 3. Finish — finalizes recording, auto-saves snapshot
+flow-walker record finish --run-id P-tnB_sgKA --run-dir runs/P-tnB_sgKA \
+  --status pass --flow flows/login.yaml --json
+
+# 4. Verify — produces run.json from events + flow expectations
+flow-walker verify flows/login.yaml --run-dir runs/P-tnB_sgKA --json > runs/P-tnB_sgKA/run.json
+
+# 5. Report — generates self-contained HTML
+flow-walker report runs/P-tnB_sgKA --json
+
+# 6. Push — uploads and returns shareable URL
+flow-walker push runs/P-tnB_sgKA --json
+# => {"id":"P-tnB_sgKA","htmlUrl":"https://flow-walker.beastoin.workers.dev/runs/P-tnB_sgKA.html"}
 ```
 
-### `push` — Share report
+### Event types
 
-Uploads report.html to the hosted service and returns a shareable URL. No auth, no config.
+Events are streamed as NDJSON. Step-scoped events require `step_id`.
 
-```bash
-flow-walker push ./run-output/25h7afGwBK/
-# => URL: https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK
+| Type | Scope | Description |
+|------|-------|-------------|
+| `run.start` | global | Run began |
+| `step.start` | step | Step execution started |
+| `action` | step | User action (tap, swipe, fill, keyevent) |
+| `assert` | step | Assertion check with pass/fail |
+| `artifact` | step | Screenshot or file captured |
+| `step.end` | step | Step completed |
+| `run.end` | global | Run finished |
+| `note` | step | Free-form annotation |
 
-flow-walker push ./run-output/25h7afGwBK/ --json
-# => {"id":"25h7afGwBK","url":"https://...","htmlUrl":"https://....html","expiresAt":"2026-04-11T..."}
+Example event stream for one step:
+
+```jsonl
+{"type":"step.start","step_id":"S1","name":"Navigate to Settings","ts":"2026-03-17T06:22:38.489Z"}
+{"type":"action","step_id":"S1","action":"tap","target":"Settings icon","adb_coords":"960,180","ts":"2026-03-17T06:22:39.102Z"}
+{"type":"assert","step_id":"S1","expect":"text_visible","values":["Settings"],"pass":true,"ts":"2026-03-17T06:22:41.330Z"}
+{"type":"artifact","step_id":"S1","artifact":"screenshot","path":"step-S1.webp","ts":"2026-03-17T06:22:41.890Z"}
+{"type":"step.end","step_id":"S1","status":"pass","ts":"2026-03-17T06:22:42.015Z"}
 ```
 
-Reports are stored for 30 days. Re-pushing the same run is idempotent — returns the same URL with updated expiry. Use `FLOW_WALKER_API_URL` env var to point at a custom server.
+Every event should include a `ts` field with a real wall-clock timestamp. This is how the report calculates duration.
 
-Push also uploads `run.json` (stripped of local file paths). URL scheme is agent-first:
-
-```bash
-# Agent: JSON by default
-curl https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK
-curl https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK.json
-
-# Human: HTML report
-open https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK.html
-```
-
-### `get` — Retrieve run data
-
-Fetches structured run data from the hosted service by run ID. Returns JSON (the same run.json uploaded during push, minus local file paths).
-
-```bash
-flow-walker get 25h7afGwBK          # pretty-printed
-flow-walker get 25h7afGwBK --json   # compact (pipe-friendly)
-flow-walker get 25h7afGwBK | jq '.steps[] | select(.status=="fail")'
-```
-
-### `schema` — Agent discovery
-
-Machine-readable command introspection. Returns versioned JSON with args, flags (with types), exit codes, and examples.
-
-```bash
-flow-walker schema           # all commands with version envelope
-flow-walker schema run       # single command detail
-```
-
-Agents can discover capabilities programmatically — no --help parsing needed.
-
-## YAML flow format
+## Flow YAML format (v2)
 
 ```yaml
-name: tab-navigation
-description: Bottom nav bar detection, switch between 4 tabs
-app: Omi                                    # optional: app name (shown in reports)
-app_url: https://omi.me                     # optional: app URL (linked in reports)
+version: 2
+name: conversations
+description: Browse conversation list, open detail, switch tabs
+app: com.friend.ios.dev
+evidence:
+  video: true
 covers:
-  - app/lib/pages/home/page.dart
-prerequisites:
+  - app/lib/pages/conversations/conversations_page.dart
+preconditions:
   - auth_ready
-setup: normal
 
 steps:
-  - name: Verify home tab and nav bar
-    assert:
-      interactive_count: { min: 20 }
-      bottom_nav_tabs: { min: 4 }
-    screenshot: tab-home
+  - id: S1
+    name: Verify home screen
+    do: "Verify the home screen shows Conversations heading and folder tabs"
+    verify: true
+    expect:
+      - kind: text_visible
+        values: ["Conversations"]
+      - kind: interactive_count
+        min: 4
+    evidence:
+      - screenshot: step-S1.webp
+    note: "ADB coordinates for bottom nav tabs on 1080x2400 device"
 
-  - name: Switch to tab 2
-    press: { bottom_nav_tab: 1 }
-    screenshot: tab-2
-
-  - name: Scroll in current tab
-    scroll: down
-
-  - name: Verify developer settings has switches
-    assert:
-      has_type: { type: switch, min: 2 }
-
-  - name: Verify visible text on screen
-    assert:
-      text_visible: ["Featured", "Home"]
-      text_not_visible: ["Error", "Sign In"]
-
-  - name: Return to home tab
-    press: { bottom_nav_tab: 0 }
-    screenshot: final
+  - id: S2
+    name: Open conversation detail
+    do: "Tap a conversation item to open the detail page"
+    expect:
+      - kind: text_visible
+        values: ["Summary"]
 ```
 
-### Step actions
+### Step fields
 
-| Action | Syntax | Description |
-|--------|--------|-------------|
-| `press` | `{ type: button, position: rightmost }` | Press by type, position, ref, or bottom_nav_tab |
-| `scroll` | `down` / `up` / `left` / `right` | Scroll the screen |
-| `fill` | `{ type: textfield, value: "text" }` | Enter text into a field |
-| `back` | `true` | Navigate back |
-| `assert` | `{ interactive_count: { min: N } }` | Assert element counts, nav tabs, element types |
-| `screenshot` | `name` | Capture screenshot with label |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | yes | Unique step ID (e.g., `S1`, `S2`) |
+| `name` | yes | Short description |
+| `do` | yes | Detailed action instructions |
+| `verify` | no | If `true`, step is always verified on replay |
+| `expect` | no | Expectations to check (`text_visible`, `interactive_count`) |
+| `evidence` | no | Screenshots/artifacts to capture |
+| `note` | no | Implementation details, coordinates, edge cases |
 
-### Assertions
+## Auto-explore
 
-| Assertion | Syntax | Description |
-|-----------|--------|-------------|
-| `interactive_count` | `{ min: 20 }` | Min total interactive elements on screen |
-| `bottom_nav_tabs` | `{ min: 4 }` | Min bottom navigation tabs |
-| `has_type` | `{ type: switch, min: 2 }` | Min elements of a specific type |
-| `text_visible` | `["Featured", "Home"]` | Text must be visible on screen (via UIAutomator) |
-| `text_not_visible` | `["Error", "Sign In"]` | Text must NOT be visible on screen |
+Discovers app screens by pressing every interactive element via BFS.
+
+```bash
+flow-walker walk --max-depth 3 --output-dir ./flows/ --json
+flow-walker walk --dry-run       # snapshot without pressing
+flow-walker walk --skip-connect  # use existing agent-flutter session
+```
+
+Safety: walk avoids destructive elements by default (`delete`, `sign out`, `remove`, `reset`, etc.). Customize with `--blocklist`.
+
+## Snapshot & replay
+
+After a successful run, `record finish` auto-saves a snapshot next to the flow YAML (`<flow>.snapshot.json`). Snapshots cache coordinates and timing for fast re-execution.
+
+```bash
+# On next record init, snapshot is loaded automatically
+flow-walker record init --flow flows/login.yaml --json
+# => {"id":"...","dir":"...","replay":{"mode":"replay","steps":{...}}}
+
+# Manual save/load
+flow-walker snapshot save --flow flows/login.yaml --run-dir runs/abc --json
+flow-walker snapshot load --flow flows/login.yaml --json
+```
+
+When `replay.mode` is `"replay"`, agents use `replay.steps[id].center` coordinates for cached steps and only do full exploration for `replay.verifySteps` (steps marked `verify: true`).
+
+## Verify modes
+
+```bash
+flow-walker verify flow.yaml --run-dir runs/abc --mode balanced --json
+```
+
+| Mode | Description |
+|------|-------------|
+| `strict` | All expectations must be met via automated checks |
+| `balanced` | Default — some flexibility in matching |
+| `audit` | Agent-attested — generates structure from events without automated UI checks |
+
+## Hosted reports
+
+Reports are hosted at [flow-walker.beastoin.workers.dev](https://flow-walker.beastoin.workers.dev).
+
+```bash
+# Push report
+flow-walker push runs/abc --json
+# => {"id":"abc","url":"https://flow-walker.beastoin.workers.dev/runs/abc","htmlUrl":"...","expiresAt":"..."}
+
+# Fetch run data (JSON)
+flow-walker get abc --json
+curl https://flow-walker.beastoin.workers.dev/runs/abc
+
+# View report (HTML)
+open https://flow-walker.beastoin.workers.dev/runs/abc.html
+```
+
+Reports expire after 30 days. Re-pushing updates the expiry.
+
+## run.json schema
+
+The `verify` command produces `run.json` in `VerifyResult` format. The `report` command reads this format.
+
+```json
+{
+  "flow": "conversations",
+  "mode": "balanced",
+  "result": "pass",
+  "steps": [
+    {
+      "id": "S1",
+      "name": "Verify home screen",
+      "do": "Verify the home screen shows Conversations heading",
+      "outcome": "pass",
+      "events": [],
+      "expectations": [
+        {"kind": "text_visible", "values": ["Conversations"], "met": true}
+      ]
+    }
+  ],
+  "issues": []
+}
+```
+
+Key fields: top-level `result` (not `status`), per-step `outcome` (not `status`).
 
 ## Agent-friendly design
 
-Built following [Poehnelt's CLI-for-agents principles](https://justin.poehnelt.com/posts/rewrite-your-cli-for-ai-agents/):
-
 - **Schema introspection** — `flow-walker schema` returns versioned JSON with typed args/flags
-- **Structured errors** — every error returns `{code, message, hint, diagnosticId}` in JSON
-- **Input hardening** — path traversal, control chars, URI format all validated
+- **Structured errors** — `{code, message, hint, diagnosticId}` in JSON
+- **Input hardening** — path traversal, control chars, URI format validated
 - **TTY-aware JSON** — `--no-json` > `--json` > `FLOW_WALKER_JSON=1` > TTY auto-detect
-- **Dry-run** — `--dry-run` parses and resolves targets without executing (includes resolve reasons)
-- **NDJSON streaming** — walk emits `walk:start`, `screen`, `edge`, `skip` events as one JSON per line
-- **Unique run IDs** — 10-char base64url per run, filesystem-safe, URL-safe
-- **Hosted sharing** — `flow-walker push` uploads report and returns a URL, no auth needed
-- **Agent-first URLs** — `/runs/:id` defaults to JSON; `.html` suffix for humans
-- **App metadata** — optional `app` + `app_url` in YAML flows, shown in reports and landing page
-- **Environment variables** — `FLOW_WALKER_OUTPUT_DIR`, `FLOW_WALKER_AGENT_PATH`, `FLOW_WALKER_DRY_RUN`, `FLOW_WALKER_JSON`, `FLOW_WALKER_API_URL`
+- **Dry-run** — `--dry-run` resolves without executing
+- **NDJSON streaming** — walk emits events as one JSON per line
+- **Unique run IDs** — 10-char base64url, filesystem-safe, URL-safe
+- **Agent-first URLs** — `/runs/:id` defaults to JSON; `.html` for humans
 - **Exit codes** — 0 = success, 1 = flow failure, 2 = error
+
+## Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `FLOW_WALKER_OUTPUT_DIR` | Default output directory |
+| `FLOW_WALKER_AGENT_PATH` | Path to agent-flutter binary |
+| `FLOW_WALKER_DRY_RUN` | Enable dry-run mode |
+| `FLOW_WALKER_JSON` | Force JSON output |
+| `FLOW_WALKER_API_URL` | Custom hosted service URL |
 
 ## Architecture
 
 ```
-flow-walker CLI (flow layer)
-  | shells out to
-agent-flutter CLI / agent-swift CLI (transport layer)
-  | connects via
-VM Service + Marionette / XCTest (platform-specific)
-  | controls
-App on device/emulator/desktop
+src/
+├── cli.ts              Entry point, arg parsing, dispatch
+├── walker.ts           BFS exploration algorithm
+├── record.ts           3-phase recording (init/stream/finish)
+├── verify.ts           Event verification against flow expectations
+├── reporter.ts         HTML report generation
+├── push.ts             Report upload to hosted service
+├── snapshot.ts         Save/load replay snapshots
+├── event-schema.ts     Event type definitions and validation
+├── flow-parser.ts      YAML → Flow object parsing
+├── flow-v2-schema.ts   V2 flow schema and validation
+├── agent-bridge.ts     Thin wrapper around agent-flutter CLI
+├── fingerprint.ts      Screen identity hashing
+├── graph.ts            Navigation graph
+├── safety.ts           Blocklist evaluation
+├── run-schema.ts       RunResult type and validation
+├── yaml-writer.ts      YAML flow generation
+├── migrate.ts          V1 → V2 flow migration
+├── command-schema.ts   Command schemas for agent discovery
+├── errors.ts           Structured error handling
+├── validate.ts         Input validation
+└── types.ts            Shared type definitions
 ```
 
-**Design principles:**
-1. **Pluggable transport** — same YAML flows, different backends
-2. **Fingerprint by structure** — screen identity uses element types/counts, not text
-3. **Safety first** — blocklist prevents pressing destructive elements
-4. **Self-contained output** — HTML reports embed everything as base64
-5. **YAML as contract** — flows are portable, readable, version-controllable
-
-## Phase history
-
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 1 | walk: BFS explorer, fingerprinting, safety, YAML generation | Complete |
-| 2 | run + report: flow executor, video/screenshots, HTML viewer | Complete |
-| 3 | Agent-grade: structured errors, schema, input hardening, run IDs | Complete |
-| 4 | Hosted reports: push command, Cloudflare Worker + R2 | Complete |
-| 5 | Landing page: live metrics, stats tracking | Complete |
-| 6 | Agent-friendly run data + app metadata | Complete |
+Zero external runtime dependencies. Node.js built-ins only.
 
 ## License
 
