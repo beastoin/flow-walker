@@ -70,7 +70,7 @@ describe('getSchemaEnvelope', () => {
   });
   it('version matches SCHEMA_VERSION', () => { assert.equal(getSchemaEnvelope().version, SCHEMA_VERSION); });
   it('version is semver format', () => { assert.match(SCHEMA_VERSION, /^\d+\.\d+\.\d+$/); });
-  it('SCHEMA_VERSION is 2.0.0', () => { assert.equal(SCHEMA_VERSION, '2.0.0'); });
+  it('SCHEMA_VERSION is 2.1.0', () => { assert.equal(SCHEMA_VERSION, '2.1.0'); });
 });
 describe('getCommandSchema', () => {
   it('returns schema for known command', () => { const s = getCommandSchema('walk'); assert.ok(s); assert.equal(s.name, 'walk'); });

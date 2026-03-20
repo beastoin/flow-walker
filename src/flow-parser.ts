@@ -79,8 +79,48 @@ export function parseFlowV1(yamlContent: string): Flow {
   if (!flow.steps || (flow.steps as unknown[]).length === 0) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow has no steps');
   return flow as unknown as Flow;
 }
+/** Resolve YAML multi-line scalars (> folded, | literal) into single-line values */
+function resolveMultiLineScalars(rawLines: string[]): string[] {
+  const result: string[] = [];
+  let i = 0;
+  while (i < rawLines.length) {
+    const line = rawLines[i];
+    const trimmed = line.trim();
+    // Check if this line ends with a multi-line scalar indicator
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx > 0) {
+      const afterColon = trimmed.slice(colonIdx + 1).trim();
+      if (afterColon === '>' || afterColon === '|') {
+        const joiner = afterColon === '>' ? ' ' : '\n';
+        const prefix = line.slice(0, line.indexOf(trimmed)) + trimmed.slice(0, colonIdx + 1) + ' ';
+        // Collect continuation lines
+        const parts: string[] = [];
+        i++;
+        // Determine the indentation level of the first continuation line
+        let blockIndent = -1;
+        while (i < rawLines.length) {
+          const nextLine = rawLines[i];
+          if (nextLine.trim() === '') { i++; continue; } // skip blank lines
+          const indent = nextLine.length - nextLine.trimStart().length;
+          if (blockIndent === -1) blockIndent = indent;
+          if (indent < blockIndent) break; // back to parent indentation
+          parts.push(nextLine.trim());
+          i++;
+        }
+        result.push(prefix + parts.join(joiner));
+        continue;
+      }
+    }
+    result.push(line);
+    i++;
+  }
+  return result;
+}
+
 export function parseFlowV2(yamlContent: string): FlowV2 {
-  const lines = yamlContent.split('\n');
+  const rawLines = yamlContent.split('\n');
+  // Pre-process: resolve multi-line scalars (> and |)
+  const lines = resolveMultiLineScalars(rawLines);
   const flow: Partial<FlowV2> = { steps: [] };
   let currentStep: Partial<FlowV2Step> & Record<string, unknown> = {};
   let inSteps = false, inCovers = false, inPreconditions = false, inExpect = false, inEvidence = false, inAnchors = false, inDefaults = false, inFlowEvidence = false;

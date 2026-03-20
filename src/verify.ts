@@ -18,6 +18,14 @@ export interface VerifyResult {
   steps: VerifyStepResult[]; issues: string[];
 }
 
+/** Normalize common outcome variants to valid StepOutcome values */
+function normalizeOutcome(raw: string): 'pass' | 'fail' | 'skipped' | 'recovered' {
+  if (raw === 'pass') return 'pass';
+  if (raw === 'skipped' || raw === 'skip') return 'skipped';
+  if (raw === 'recovered') return 'recovered';
+  return 'fail'; // 'partial', 'error', unknown → fail
+}
+
 export function verifyRun(opts: VerifyOptions): VerifyResult {
   const { flow, runDir, mode } = opts;
   const evPath = opts.eventsPath || join(runDir, 'events.jsonl');
@@ -42,11 +50,12 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
     const endEvent = evs.find(e => e.type === 'step.end');
     let outcome: 'pass' | 'fail' | 'skipped' | 'recovered' = 'fail';
     if (endEvent) {
-      const status = (endEvent.outcome ?? endEvent.status) as string;
-      if (status === 'pass') outcome = 'pass';
-      else if (status === 'skipped') outcome = 'skipped';
-      else if (status === 'recovered') outcome = 'recovered';
-      else outcome = 'fail';
+      const rawStatus = String(endEvent.outcome ?? endEvent.status ?? 'fail');
+      outcome = normalizeOutcome(rawStatus);
+      // Record normalization in issues if value was non-standard
+      if (rawStatus !== outcome && rawStatus !== 'skip') {
+        issues.push(`Step ${step.id}: outcome "${rawStatus}" normalized to "${outcome}"`);
+      }
     } else if (evs.length === 0) {
       outcome = mode === 'audit' ? 'skipped' : 'fail';
       if (mode !== 'audit') issues.push(`Step ${step.id}: no events recorded`);
@@ -63,15 +72,32 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
           const found = evs.find(e => e.type === 'assert' && e.milestone === exp.milestone);
           expectations.push({ ...exp, met: !!found });
           if (!found && mode === 'strict') { issues.push(`Step ${step.id}: milestone "${exp.milestone}" not found`); outcome = 'fail'; }
-        } else { expectations.push({ ...exp, met: true }); }
+        } else if (exp.kind) {
+          // Check assert events for this kind
+          const assertEv = evs.find(e => e.type === 'assert' && e.kind === exp.kind) as Record<string, unknown> | undefined;
+          if (assertEv && assertEv.passed === false) {
+            expectations.push({ ...exp, met: false });
+            if (mode === 'strict') { issues.push(`Step ${step.id}: expectation ${exp.kind} failed`); outcome = 'fail'; }
+          } else {
+            // No assert event or assert passed — trust it
+            expectations.push({ ...exp, met: true });
+          }
+        } else {
+          expectations.push({ ...exp, met: true });
+        }
       }
     }
     if (mode === 'strict' && outcome === 'skipped') { issues.push(`Step ${step.id}: skipped (not allowed in strict mode)`); outcome = 'fail'; }
+    // Add issues for failed/skipped steps in all modes
+    if (outcome === 'fail') {
+      const summary = endEvent ? (endEvent.summary as string || '') : '';
+      issues.push(`Step ${step.id}: ${outcome}${summary ? ` — ${summary}` : ''}`);
+    }
     steps.push({ id: step.id, name: step.name || '', do: step.do, outcome, events: evs, expectations });
   }
   if (mode === 'strict') { for (const sid of stepEvents.keys()) { if (!seenStepIds.has(sid)) issues.push(`Unknown step_id in events: ${sid}`); } }
-  let result: 'pass' | 'fail' = 'pass';
-  if (mode === 'audit') { result = 'pass'; } else { result = steps.some(s => s.outcome === 'fail') ? 'fail' : 'pass'; }
+  // Result reflects actual step outcomes in all modes
+  const result: 'pass' | 'fail' = steps.some(s => s.outcome === 'fail') ? 'fail' : 'pass';
   const verifyResult: VerifyResult = { flow: flow.name, mode, result, steps, issues };
   const outputPath = opts.outputPath || join(runDir, 'run.json');
   writeFileSync(outputPath, JSON.stringify(verifyResult));

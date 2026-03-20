@@ -21,7 +21,7 @@ interface WalkResult {
  * builds a navigation graph, and outputs YAML flow files.
  */
 export async function walk(config: WalkerConfig): Promise<WalkResult> {
-  const bridge = new AgentBridge(config.agentFlutterPath);
+  const bridge = new AgentBridge(config.agentPath, 30000, config.agentType);
   const graph = new NavigationGraph();
   let totalSkipped = 0;
 

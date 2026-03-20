@@ -105,6 +105,9 @@ export interface FlowV2 {
 export interface StepHint { screen: string; refs: Record<string, string>; }
 export interface FlowHints { version: 1; flow: string; steps: Record<string, StepHint>; }
 
+/** Agent transport type */
+export type AgentType = 'flutter' | 'swift';
+
 /** Walker configuration */
 export interface WalkerConfig {
   appUri?: string;
@@ -115,5 +118,7 @@ export interface WalkerConfig {
   json: boolean;
   dryRun: boolean;
   agentFlutterPath: string;
+  agentPath: string;
+  agentType: AgentType;
   skipConnect: boolean;
 }

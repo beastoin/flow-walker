@@ -7,7 +7,8 @@ import { FlowWalkerError, ErrorCodes } from './errors.ts';
 import { loadSnapshot, saveSnapshot } from './snapshot.ts';
 import type { ReplayPlan } from './snapshot.ts';
 
-export interface RecordInitOptions { flowPath: string; outputDir: string; runId?: string; noVideo?: boolean; device?: string; }
+export type Platform = 'mobile' | 'desktop';
+export interface RecordInitOptions { flowPath: string; outputDir: string; runId?: string; noVideo?: boolean; device?: string; platform?: Platform; }
 export interface RecordInitResult { id: string; dir: string; video?: boolean; replay?: ReplayPlan; }
 
 export function recordInit(opts: RecordInitOptions): RecordInitResult {
@@ -16,24 +17,42 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
   mkdirSync(runDir, { recursive: true });
   const flowContent = readFileSync(opts.flowPath, 'utf-8');
   writeFileSync(join(runDir, 'flow.lock.yaml'), flowContent);
-  const meta: Record<string, unknown> = { id, status: 'recording', startedAt: new Date().toISOString() };
+  const platform = opts.platform || 'mobile';
+  const meta: Record<string, unknown> = { id, status: 'recording', startedAt: new Date().toISOString(), platform };
 
-  // Start video recording via ADB screenrecord (best-effort)
+  // Start video recording (platform-aware)
   let videoStarted = false;
   if (!opts.noVideo) {
-    try {
-      const adbArgs = opts.device ? ['-s', opts.device] : [];
-      const deviceRecordPath = `/sdcard/fw-${id}.mp4`;
-      const proc = spawn('adb', [...adbArgs, 'shell', 'screenrecord', '--time-limit', '0', '--size', '720x1280', '--bit-rate', '2000000', deviceRecordPath], {
-        stdio: 'ignore', detached: true,
-      });
-      proc.unref();
-      if (proc.pid) {
-        meta.videoPid = proc.pid;
-        meta.videoDevicePath = deviceRecordPath;
-        videoStarted = true;
-      }
-    } catch { /* ADB not available — skip video */ }
+    if (platform === 'desktop') {
+      // macOS: use screencapture -v for desktop recording
+      try {
+        const localPath = join(runDir, 'recording.mov');
+        const proc = spawn('screencapture', ['-v', localPath], {
+          stdio: 'ignore', detached: true,
+        });
+        proc.unref();
+        if (proc.pid) {
+          meta.videoPid = proc.pid;
+          meta.videoLocalPath = localPath;
+          videoStarted = true;
+        }
+      } catch { /* screencapture not available — skip video */ }
+    } else {
+      // Mobile: use ADB screenrecord
+      try {
+        const adbArgs = opts.device ? ['-s', opts.device] : [];
+        const deviceRecordPath = `/sdcard/fw-${id}.mp4`;
+        const proc = spawn('adb', [...adbArgs, 'shell', 'screenrecord', '--time-limit', '0', '--size', '720x1280', '--bit-rate', '2000000', deviceRecordPath], {
+          stdio: 'ignore', detached: true,
+        });
+        proc.unref();
+        if (proc.pid) {
+          meta.videoPid = proc.pid;
+          meta.videoDevicePath = deviceRecordPath;
+          videoStarted = true;
+        }
+      } catch { /* ADB not available — skip video */ }
+    }
   }
 
   writeFileSync(join(runDir, 'run.meta.json'), JSON.stringify(meta));
@@ -81,8 +100,30 @@ export function recordFinish(ctx: { runId: string; runDir: string; status: strin
   meta.finishedAt = new Date().toISOString();
   meta.eventCount = eventLines.length;
 
-  // Stop video recording and pull file from device
-  if (meta.videoDevicePath) {
+  // Stop video recording and collect file
+  if (meta.videoLocalPath) {
+    // Desktop: screencapture writes directly to local file
+    try {
+      if (meta.videoPid) process.kill(meta.videoPid as number, 'SIGINT');
+      sleepSync(1000);
+      const movPath = meta.videoLocalPath as string;
+      const mp4Path = join(runDir, 'recording.mp4');
+      // Convert .mov to .mp4 with ffmpeg (best-effort)
+      try {
+        execSync(`ffmpeg -y -i ${movPath} -c:v libx264 -crf 28 -preset fast -an ${mp4Path}`, { stdio: 'ignore', timeout: 120000 });
+        if (existsSync(movPath)) unlinkSync(movPath);
+      } catch {
+        if (existsSync(movPath)) {
+          if (existsSync(mp4Path)) unlinkSync(mp4Path);
+          renameSync(movPath, mp4Path);
+        }
+      }
+      meta.video = 'recording.mp4';
+    } catch { /* best-effort */ }
+    delete meta.videoPid;
+    delete meta.videoLocalPath;
+  } else if (meta.videoDevicePath) {
+    // Mobile: ADB screenrecord — pull from device
     const adbArgs = ctx.device ? ['-s', ctx.device] : (meta.device ? ['-s', meta.device as string] : []);
     try {
       // Kill screenrecord on device (sends SIGINT which finalizes the mp4)

@@ -1,7 +1,7 @@
 {
   "name": "flow-walker-cli",
-  "version": "0.2.1",
-  "description": "Automatic app flow extraction via agent-flutter",
+  "version": "0.3.0",
+  "description": "Agent-first flow testing for Flutter and desktop apps via agent-flutter and agent-swift",
   "type": "module",
   "bin": {
     "flow-walker": "./src/cli.ts"

@@ -1,7 +1,7 @@
 export interface SchemaArg { name: string; required: boolean; description: string; }
 export interface SchemaFlag { name: string; description: string; type: 'string' | 'boolean' | 'integer' | 'path'; default?: string; enum?: string[]; }
 export interface CommandSchema { name: string; description: string; args: SchemaArg[]; flags: SchemaFlag[]; }
-export const SCHEMA_VERSION = '2.0.0';
+export const SCHEMA_VERSION = '2.1.0';
 export const COMMAND_SCHEMAS: CommandSchema[] = [
   { name: 'walk', description: 'Auto-explore app via BFS, discover screens, generate YAML flows', args: [],
     flags: [
@@ -12,7 +12,9 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
       { name: '--name', type: 'string', description: 'Generate scaffold v2 flow' },
       { name: '--output', type: 'path', description: 'Output file path' },
       { name: '--blocklist', type: 'string', description: 'Destructive keywords', default: 'delete,sign out,remove,reset,unpair,logout,clear all' },
-      { name: '--agent-flutter-path', type: 'path', description: 'agent-flutter binary path', default: 'agent-flutter' },
+      { name: '--agent', type: 'string', description: 'Agent transport type', enum: ['flutter', 'swift'] },
+      { name: '--agent-path', type: 'path', description: 'Path to agent-flutter or agent-swift binary', default: 'agent-flutter' },
+      { name: '--agent-flutter-path', type: 'path', description: 'Alias for --agent-path (deprecated)', default: 'agent-flutter' },
       { name: '--json', type: 'boolean', description: 'NDJSON output' },
       { name: '--no-json', type: 'boolean', description: 'Force human output' },
       { name: '--dry-run', type: 'boolean', description: 'Snapshot without pressing' },

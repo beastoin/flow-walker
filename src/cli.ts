@@ -1,7 +1,7 @@
 #!/usr/bin/env node --experimental-strip-types
 import { parseArgs } from 'node:util';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import type { WalkerConfig, FlowV2 } from './types.ts';
+import type { WalkerConfig, FlowV2, AgentType } from './types.ts';
 import { walk } from './walker.ts';
 import { parseFlowFile, parseFlowV2 } from './flow-parser.ts';
 import { buildScaffoldFlow } from './flow-v2-schema.ts';
@@ -11,6 +11,7 @@ import { verifyRun } from './verify.ts';
 import type { VerifyResult } from './verify.ts';
 import { migrateFlowV1toV2 } from './migrate.ts';
 import { saveSnapshot, loadSnapshot } from './snapshot.ts';
+import { detectAgentType } from './agent-bridge.ts';
 import { generateReportV2 } from './reporter.ts';
 import { FlowWalkerError, ErrorCodes, formatError } from './errors.ts';
 import { validateFlowPath, validateOutputDir, validateUri, validateBundleId } from './validate.ts';
@@ -23,7 +24,7 @@ function resolveJsonMode(flags: Record<string, unknown>): boolean {
   if (!process.stdout.isTTY) return true; return false;
 }
 function printUsage(): void {
-  console.log(`flow-walker — Agent-first flow testing for Flutter apps
+  console.log(`flow-walker — Agent-first flow testing for Flutter and desktop apps
 
 Usage:
   flow-walker walk [options]                  Auto-explore app and generate YAML flows
@@ -35,6 +36,12 @@ Usage:
   flow-walker migrate <flow.yaml>             Migrate v1 flow to v2 format
   flow-walker snapshot <save|load>             Save/load flow replay snapshots
   flow-walker schema [command]                Show command schema for agent discovery
+
+Transport:
+  --agent flutter|swift     Agent transport (default: auto-detect from --agent-path)
+  --agent-path <path>       Path to agent-flutter or agent-swift binary
+
+  Supports agent-flutter (mobile) and agent-swift (macOS desktop).
 `);
 }
 async function main(): Promise<void> {
@@ -46,6 +53,8 @@ async function main(): Promise<void> {
       'output': { type: 'string' }, 'name': { type: 'string' },
       'blocklist': { type: 'string', default: DEFAULT_BLOCKLIST },
       'agent-flutter-path': { type: 'string' },
+      'agent-path': { type: 'string' },
+      'agent': { type: 'string' },
       'json': { type: 'boolean', default: false }, 'no-json': { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false }, 'skip-connect': { type: 'boolean', default: false },
       'no-video': { type: 'boolean', default: false }, 'no-logs': { type: 'boolean', default: false },
@@ -57,7 +66,9 @@ async function main(): Promise<void> {
   });
   const subcommand = positionals[0];
   const json = resolveJsonMode(values);
-  const agentPath = (values['agent-flutter-path'] as string | undefined) ?? process.env.FLOW_WALKER_AGENT_PATH ?? 'agent-flutter';
+  const agentPath = (values['agent-path'] as string | undefined) ?? (values['agent-flutter-path'] as string | undefined) ?? process.env.FLOW_WALKER_AGENT_PATH ?? 'agent-flutter';
+  const agentTypeFlag = values['agent'] as string | undefined;
+  const agentType: AgentType = agentTypeFlag === 'swift' || agentTypeFlag === 'flutter' ? agentTypeFlag : (process.env.FLOW_WALKER_AGENT as AgentType | undefined) ?? detectAgentType(agentPath);
   const dryRun = (values['dry-run'] as boolean) || process.env.FLOW_WALKER_DRY_RUN === '1';
   if (values.version) { console.log(json ? JSON.stringify({ version: SCHEMA_VERSION }) : `flow-walker ${SCHEMA_VERSION}`); process.exit(0); }
   if (values.help || !subcommand) {
@@ -65,8 +76,8 @@ async function main(): Promise<void> {
     printUsage(); process.exit(subcommand ? 0 : 1);
   }
   try {
-    if (subcommand === 'walk') await handleWalk(values, positionals, json, agentPath, dryRun);
-    else if (subcommand === 'record') await handleRecord(values, positionals, json);
+    if (subcommand === 'walk') await handleWalk(values, positionals, json, agentPath, agentType, dryRun);
+    else if (subcommand === 'record') await handleRecord(values, positionals, json, agentType);
     else if (subcommand === 'verify') await handleVerify(values, positionals, json);
     else if (subcommand === 'report') await handleReport(values, positionals, json);
     else if (subcommand === 'push') await handlePush(positionals, json);
@@ -77,7 +88,7 @@ async function main(): Promise<void> {
     else throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Unknown subcommand: ${subcommand}`, 'Available: walk, record, verify, report, push, get, migrate, snapshot, schema');
   } catch (err) { console.error(formatError(err, json)); process.exit(2); }
 }
-async function handleWalk(values: Record<string, unknown>, _positionals: string[], json: boolean, agentPath: string, dryRun: boolean): Promise<void> {
+async function handleWalk(values: Record<string, unknown>, _positionals: string[], json: boolean, agentPath: string, agentType: AgentType, dryRun: boolean): Promise<void> {
   const scaffoldName = values['name'] as string | undefined;
   if (scaffoldName) {
     const flow = buildScaffoldFlow(scaffoldName);
@@ -96,13 +107,13 @@ async function handleWalk(values: Record<string, unknown>, _positionals: string[
     appUri: values['app-uri'] as string | undefined, bundleId: values['bundle-id'] as string | undefined,
     maxDepth: parseInt(values['max-depth'] as string, 10), outputDir,
     blocklist: (values['blocklist'] as string).split(',').map(s => s.trim()),
-    json, dryRun, agentFlutterPath: agentPath, skipConnect: values['skip-connect'] as boolean,
+    json, dryRun, agentFlutterPath: agentPath, agentPath, agentType, skipConnect: values['skip-connect'] as boolean,
   };
   const result = await walk(config);
   console.log(json ? JSON.stringify({ type: 'result', ...result }) : `\nDone. ${result.screensFound} screens, ${result.flowsGenerated} flows, ${result.elementsSkipped} skipped.`);
   process.exit(0);
 }
-async function handleRecord(values: Record<string, unknown>, positionals: string[], json: boolean): Promise<void> {
+async function handleRecord(values: Record<string, unknown>, positionals: string[], json: boolean, agentType: AgentType): Promise<void> {
   const sub = positionals[1];
   if (!sub || !['init', 'stream', 'finish'].includes(sub)) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record requires: init, stream, or finish');
   if (sub === 'init') {
@@ -112,7 +123,8 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     const outputDir = (values['output-dir'] as string | undefined) ?? './runs/';
     const noVideo = values['no-video'] as boolean;
     const device = process.env.AGENT_FLUTTER_DEVICE || undefined;
-    const result = recordInit({ flowPath, outputDir, runId: values['run-id'] as string | undefined, noVideo, device });
+    const platform = agentType === 'swift' ? 'desktop' as const : 'mobile' as const;
+    const result = recordInit({ flowPath, outputDir, runId: values['run-id'] as string | undefined, noVideo, device, platform });
     if (json) {
       console.log(JSON.stringify(result));
     } else {
