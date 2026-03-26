@@ -202,11 +202,31 @@ async function handleReport(values: Record<string, unknown>, positionals: string
   const runDir = positionals[1];
   if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required');
   const runJsonPath = `${runDir}/run.json`;
-  if (!existsSync(runJsonPath)) throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${runDir}`);
-  const data = JSON.parse(readFileSync(runJsonPath, 'utf-8')) as VerifyResult;
+  if (!existsSync(runJsonPath)) throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${runDir}`, 'Run "flow-walker verify <flow.yaml> --run-dir <dir>" first to generate run.json');
+  const raw = JSON.parse(readFileSync(runJsonPath, 'utf-8'));
+  validateV2RunJson(raw, runDir);
+  const data = raw as VerifyResult;
   const outputPath = generateReportV2(data, runDir, { output: values['output'] as string | undefined });
   console.log(json ? JSON.stringify({ report: outputPath }) : `Report generated: ${outputPath}`);
   process.exit(0);
+}
+/** Validate that run.json has v2 VerifyResult schema — reject non-v2 data */
+function validateV2RunJson(raw: Record<string, unknown>, runDir: string): void {
+  const steps = Array.isArray(raw.steps) ? raw.steps : [];
+  const hasMode = typeof raw.mode === 'string' && raw.mode !== '';
+  const hasOutcome = steps.length > 0 && typeof steps[0].outcome === 'string';
+  const hasDo = steps.length > 0 && typeof steps[0].do === 'string';
+  if (!hasMode || !hasOutcome || !hasDo) {
+    const missing: string[] = [];
+    if (!hasMode) missing.push('mode');
+    if (!hasOutcome) missing.push('steps[].outcome');
+    if (!hasDo) missing.push('steps[].do');
+    throw new FlowWalkerError(
+      ErrorCodes.INVALID_INPUT,
+      `run.json is not v2 format (missing: ${missing.join(', ')}). Do not hand-craft run.json — use the verify command.`,
+      `Run "flow-walker verify <flow.yaml> --run-dir ${runDir} --mode audit" to generate a valid v2 run.json from events.jsonl`,
+    );
+  }
 }
 async function handlePush(positionals: string[], json: boolean): Promise<void> {
   const runDir = positionals[1];
