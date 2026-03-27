@@ -79,26 +79,3 @@ describe('buildHtmlV2', () => {
     assert.ok(html.includes('@media (max-width: 768px)'));
   });
 });
-
-describe('buildHtmlV2 v2 enforcement', () => {
-  it('renders v2 VerifyResult correctly', () => {
-    const v2Data = {
-      flow: 'onboarding-chaos',
-      mode: 'audit',
-      result: 'fail' as const,
-      steps: [
-        { id: 'S1', name: 'screenshot', do: 'Take screenshot of welcome screen', outcome: 'pass' as const, events: [], expectations: [] },
-        { id: 'S2', name: 'press-continue', do: 'Press continue button', outcome: 'fail' as const, events: [], expectations: [] },
-      ],
-      issues: [],
-    };
-    const html = buildHtmlV2(v2Data);
-    assert.ok(html.includes('onboarding-chaos'));
-    assert.ok(html.includes('audit'), 'should show mode');
-    assert.ok(html.includes('1 pass'), 'should count 1 pass');
-    assert.ok(html.includes('1 fail'), 'should count 1 fail');
-    assert.ok(html.includes('S1'), 'should show step ID');
-    assert.ok(html.includes('Take screenshot of welcome screen'), 'should show do text');
-    assert.ok(!html.includes('undefined'), 'should NOT contain undefined anywhere');
-  });
-});

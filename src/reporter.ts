@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import type { VerifyResult, VerifyStepResult } from './verify.ts';
 
 export interface ReportOptions { noVideo?: boolean; output?: string; }
@@ -11,7 +11,12 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
   for (const step of runResult.steps) {
     for (const ev of step.events as Array<Record<string, unknown>>) {
       if (ev.type === 'artifact' && ev.path) {
-        try { const imgPath = join(runDir, ev.path as string); const imgData = readFileSync(imgPath); screenshotData.set(ev.path as string, imgData.toString('base64')); } catch { /* not available */ }
+        const evPath = ev.path as string;
+        // Try exact path first, then basename (handles CWD-relative paths like "runs/xxx/step-S1.webp")
+        const candidates = [join(runDir, evPath), join(runDir, basename(evPath))];
+        for (const imgPath of candidates) {
+          try { const imgData = readFileSync(imgPath); screenshotData.set(evPath, imgData.toString('base64')); screenshotData.set(basename(evPath), imgData.toString('base64')); break; } catch { /* try next */ }
+        }
       }
     }
   }
@@ -57,7 +62,10 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
     const icon = s.outcome === 'pass' ? '&#10003;' : s.outcome === 'fail' ? '&#10007;' : '&#9675;';
     const cls = s.outcome === 'pass' ? 'pass' : s.outcome === 'fail' ? 'fail' : 'skip';
     const artifact = (s.events as Array<Record<string, unknown>>).find(e => e.type === 'artifact' && e.path);
-    const imgKey = artifact?.path as string || [`step-${s.id}.webp`, `step-${s.id}.png`, `step-${s.id}.jpg`].find(k => screenshots.has(k)) || `step-${s.id}.png`;
+    const artifactPath = artifact?.path as string | undefined;
+    const imgKey = (artifactPath && screenshots.has(artifactPath) ? artifactPath : undefined)
+      || [`step-${s.id}.webp`, `step-${s.id}.png`, `step-${s.id}.jpg`].find(k => screenshots.has(k))
+      || `step-${s.id}.png`;
     const imgB64 = screenshots.get(imgKey);
     const expects = ((s.expectations || []) as Array<Record<string, unknown>>).map(e => {
       const met = e.met ? '&#10003;' : '&#10007;';
