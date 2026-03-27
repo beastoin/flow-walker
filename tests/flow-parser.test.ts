@@ -289,6 +289,95 @@ steps:
     assert.throws(() => parseFlowV2(yaml), /legacy action key/i);
   });
 
+  it('parses claim field', () => {
+    const yaml = `
+version: 2
+name: claim-test
+
+steps:
+  - id: S1
+    do: Open the settings page
+    claim: Settings page is visible with all options
+`;
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.steps[0].claim, 'Settings page is visible with all options');
+  });
+
+  it('claim defaults to undefined when not specified', () => {
+    const yaml = `
+version: 2
+name: no-claim
+
+steps:
+  - id: S1
+    do: Check home
+`;
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.steps[0].claim, undefined);
+  });
+
+  it('parses judge block with prompt', () => {
+    const yaml = `
+version: 2
+name: judge-test
+
+steps:
+  - id: S1
+    do: Open home screen
+    judge:
+      - prompt: Does the screenshot show a home screen with a tab bar?
+        screenshot: step-S1
+        look_for: [tab bar, home icon]
+        fail_if: [error dialog, crash]
+`;
+    const flow = parseFlowV2(yaml);
+    const judge = flow.steps[0].judge!;
+    assert.equal(judge.length, 1);
+    assert.equal(judge[0].prompt, 'Does the screenshot show a home screen with a tab bar?');
+    assert.equal(judge[0].screenshot, 'step-S1');
+    assert.deepEqual(judge[0].look_for, ['tab bar', 'home icon']);
+    assert.deepEqual(judge[0].fail_if, ['error dialog', 'crash']);
+  });
+
+  it('parses judge with id field', () => {
+    const yaml = `
+version: 2
+name: judge-id-test
+
+steps:
+  - id: S1
+    do: Open settings
+    judge:
+      - id: check-settings
+        prompt: Are settings options visible?
+`;
+    const flow = parseFlowV2(yaml);
+    const judge = flow.steps[0].judge!;
+    assert.equal(judge.length, 1);
+    assert.equal(judge[0].id, 'check-settings');
+    assert.equal(judge[0].prompt, 'Are settings options visible?');
+  });
+
+  it('parses multiple judge entries', () => {
+    const yaml = `
+version: 2
+name: multi-judge
+
+steps:
+  - id: S1
+    do: Navigate to profile
+    judge:
+      - prompt: Is the profile avatar visible?
+        screenshot: step-S1
+      - prompt: Is the username displayed correctly?
+        look_for: [username, avatar]
+`;
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.steps[0].judge!.length, 2);
+    assert.equal(flow.steps[0].judge![0].prompt, 'Is the profile avatar visible?');
+    assert.equal(flow.steps[0].judge![1].prompt, 'Is the username displayed correctly?');
+  });
+
   it('parses expect with min field', () => {
     const yaml = `
 version: 2

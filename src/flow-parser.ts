@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type { FlowV2, FlowV2Step, FlowV2Expect, FlowV2Evidence } from './types.ts';
+import type { FlowV2, FlowV2Step, FlowV2Expect, FlowV2Evidence, FlowV2Judge } from './types.ts';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
 import { validateFlowV2 } from './flow-v2-schema.ts';
 /** Resolve YAML multi-line scalars (> folded, | literal) into single-line values */
@@ -46,7 +46,7 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
   const lines = resolveMultiLineScalars(rawLines);
   const flow: Partial<FlowV2> = { steps: [] };
   let currentStep: Partial<FlowV2Step> & Record<string, unknown> = {};
-  let inSteps = false, inCovers = false, inPreconditions = false, inExpect = false, inEvidence = false, inAnchors = false, inDefaults = false, inFlowEvidence = false;
+  let inSteps = false, inCovers = false, inPreconditions = false, inExpect = false, inEvidence = false, inAnchors = false, inDefaults = false, inFlowEvidence = false, inJudge = false;
   for (const rawLine of lines) {
     const line = rawLine.trimEnd();
     if (line.startsWith('#') || line.trim() === '') continue;
@@ -78,13 +78,14 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
     if (inCovers && t.startsWith('- ')) { flow.covers!.push(pv(t.slice(2))); continue; }
     if (inPreconditions && t.startsWith('- ')) { flow.preconditions!.push(pv(t.slice(2))); continue; }
     if (!inSteps) continue;
-    if (t.startsWith('- id:')) {
+    if (t.startsWith('- id:') && !inJudge) {
       if (currentStep.id) flow.steps!.push(currentStep as unknown as FlowV2Step);
-      currentStep = { id: pv(t.slice(5)) }; inExpect = false; inEvidence = false; inAnchors = false; continue;
+      currentStep = { id: pv(t.slice(5)) }; inExpect = false; inEvidence = false; inAnchors = false; inJudge = false; continue;
     }
     if (!currentStep.id) continue;
     if (t.startsWith('name:')) currentStep.name = pv(t.slice(5));
     else if (t.startsWith('do:')) currentStep.do = pv(t.slice(3));
+    else if (t.startsWith('claim:')) currentStep.claim = pv(t.slice(6));
     else if (t.startsWith('anchors:')) {
       const v = t.slice(8).trim();
       if (v.startsWith('[')) { currentStep.anchors = parseInlineArr(v); inAnchors = false; }
@@ -92,14 +93,32 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
     } else if (inAnchors && t.startsWith('- ')) {
       if (!currentStep.anchors) currentStep.anchors = [];
       (currentStep.anchors as string[]).push(pv(t.slice(2)));
-    } else if (t.startsWith('expect:')) { inExpect = true; inEvidence = false; inAnchors = false; currentStep.expect = []; }
+    } else if (t.startsWith('expect:')) { inExpect = true; inEvidence = false; inAnchors = false; inJudge = false; currentStep.expect = []; }
     else if (inExpect && t.startsWith('- ')) {
       const ei: Partial<FlowV2Expect> = {};
       const rest = t.slice(2).trim();
       if (rest.startsWith('milestone:')) ei.milestone = pv(rest.slice(10));
       else if (rest.startsWith('kind:')) ei.kind = pv(rest.slice(5));
       (currentStep.expect as FlowV2Expect[]).push(ei as FlowV2Expect);
-    } else if (t.startsWith('evidence:')) { inEvidence = true; inExpect = false; inAnchors = false; currentStep.evidence = []; }
+    } else if (t.startsWith('judge:')) { inJudge = true; inExpect = false; inEvidence = false; inAnchors = false; currentStep.judge = []; }
+    else if (inJudge && t.startsWith('- ')) {
+      const rest = t.slice(2).trim();
+      const ji: Partial<FlowV2Judge> = {};
+      if (rest.startsWith('prompt:')) ji.prompt = pv(rest.slice(7));
+      else if (rest.startsWith('id:')) ji.id = pv(rest.slice(3));
+      (currentStep.judge as FlowV2Judge[]).push(ji as FlowV2Judge);
+    } else if (inJudge && !t.startsWith('- ')) {
+      const last = (currentStep.judge as FlowV2Judge[])?.at(-1);
+      if (last) {
+        const r = last as unknown as Record<string, unknown>;
+        if (t.startsWith('prompt:')) r.prompt = pv(t.slice(7));
+        if (t.startsWith('id:')) r.id = pv(t.slice(3));
+        if (t.startsWith('screenshot:')) r.screenshot = pv(t.slice(11));
+        if (t.startsWith('look_for:')) r.look_for = parseInlineArr(t.slice(9).trim());
+        if (t.startsWith('fail_if:')) r.fail_if = parseInlineArr(t.slice(8).trim());
+      }
+    }
+    else if (t.startsWith('evidence:')) { inEvidence = true; inExpect = false; inAnchors = false; inJudge = false; currentStep.evidence = []; }
     else if (inExpect && !t.startsWith('- ')) {
       const last = (currentStep.expect as FlowV2Expect[])?.at(-1);
       if (last) {

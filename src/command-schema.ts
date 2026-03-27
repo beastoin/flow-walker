@@ -1,7 +1,7 @@
 export interface SchemaArg { name: string; required: boolean; description: string; }
 export interface SchemaFlag { name: string; description: string; type: 'string' | 'boolean' | 'integer' | 'path'; default?: string; enum?: string[]; }
 export interface CommandSchema { name: string; description: string; args: SchemaArg[]; flags: SchemaFlag[]; }
-export const SCHEMA_VERSION = '2.1.0';
+export const SCHEMA_VERSION = '3.0.0';
 export const COMMAND_SCHEMAS: CommandSchema[] = [
   { name: 'walk', description: 'Auto-explore app via BFS, discover screens, generate YAML flows', args: [],
     flags: [
@@ -36,6 +36,8 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
       { name: '--mode', type: 'string', description: 'Verify mode', enum: ['strict', 'balanced', 'audit'], default: 'balanced' },
       { name: '--events', type: 'path', description: 'Events file path' },
       { name: '--output', type: 'path', description: 'Output run.json path' },
+      { name: '--recheck', type: 'boolean', description: 'Re-run tier 1 automated checks from stored run data (no device needed)' },
+      { name: '--agent-prompt', type: 'boolean', description: 'Output structured JSON prompts for tier 2 agent verification' },
       { name: '--json', type: 'boolean', description: 'JSON output' },
     ] },
   { name: 'report', description: 'Generate HTML report from v2 run.json. Requires "verify" to have been run first — rejects v1/non-v2 data.', args: [{ name: 'run-dir', required: true, description: 'Directory with v2 run.json (from verify)' }],

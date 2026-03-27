@@ -7,7 +7,7 @@ import { parseFlowFile, parseFlowV2 } from './flow-parser.ts';
 import { buildScaffoldFlow } from './flow-v2-schema.ts';
 import { toYamlV2 } from './yaml-writer.ts';
 import { recordInit, recordStream, recordFinish } from './record.ts';
-import { verifyRun } from './verify.ts';
+import { verifyRun, recheckRun, generateAgentPrompts } from './verify.ts';
 import type { VerifyResult } from './verify.ts';
 import { saveSnapshot, loadSnapshot } from './snapshot.ts';
 import { detectAgentType } from './agent-bridge.ts';
@@ -59,6 +59,7 @@ async function main(): Promise<void> {
       'help': { type: 'boolean', default: false }, 'version': { type: 'boolean', default: false },
       'flow': { type: 'string' }, 'run-id': { type: 'string' }, 'run-dir': { type: 'string' },
       'status': { type: 'string' }, 'mode': { type: 'string' }, 'events': { type: 'string' },
+      'recheck': { type: 'boolean', default: false }, 'agent-prompt': { type: 'boolean', default: false },
       'device': { type: 'string' }, 'resolution': { type: 'string' },
     },
   });
@@ -190,6 +191,19 @@ async function handleVerify(values: Record<string, unknown>, positionals: string
   let flow: FlowV2;
   if ('version' in parsed && parsed.version === 2) flow = parsed as FlowV2;
   else throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'verify requires a v2 flow (version: 2)');
+  const recheck = values['recheck'] as boolean;
+  const agentPrompt = values['agent-prompt'] as boolean;
+  if (agentPrompt) {
+    const prompts = generateAgentPrompts({ flow, runDir });
+    console.log(JSON.stringify(prompts, null, 2));
+    process.exit(0);
+  }
+  if (recheck) {
+    const result = recheckRun({ flow, runDir });
+    if (json) console.log(JSON.stringify(result));
+    else { const icon = result.result === 'pass' ? '✓' : '✗'; console.log(`${icon} Recheck "${result.flow}" [${result.mode}]: ${result.result.toUpperCase()}`); for (const issue of result.issues) console.log(`  - ${issue}`); }
+    process.exit(result.result === 'pass' ? 0 : 1);
+  }
   const result = verifyRun({ flow, runDir, mode, eventsPath: values['events'] as string | undefined, outputPath: values['output'] as string | undefined });
   if (json) console.log(JSON.stringify(result));
   else { const icon = result.result === 'pass' ? '✓' : '✗'; console.log(`${icon} Verify "${result.flow}" [${result.mode}]: ${result.result.toUpperCase()}`); for (const issue of result.issues) console.log(`  - ${issue}`); }

@@ -45,12 +45,23 @@ export interface FlowV2Expect {
 
 export interface FlowV2Evidence { screenshot?: string; video?: boolean; }
 
+/** Tier 2 (agent) verification: vision + reasoning check */
+export interface FlowV2Judge {
+  id?: string;
+  prompt: string;
+  screenshot?: string;
+  look_for?: string[];
+  fail_if?: string[];
+}
+
 export interface FlowV2Step {
   id: string;
   name?: string;
   do: string;
+  claim?: string;
   anchors?: string[];
   expect?: FlowV2Expect[];
+  judge?: FlowV2Judge[];
   evidence?: FlowV2Evidence[];
   note?: string;
   verify?: boolean;

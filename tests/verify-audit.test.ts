@@ -149,15 +149,16 @@ describe('verify expectation checking', () => {
     assert.equal(exp.met, false);
   });
 
-  it('text_visible met=true when no assert event (trust agent)', () => {
+  it('text_visible no_evidence when no assert event', () => {
     const tmp = setup([
       { type: 'step.start', step_id: 'S1' },
       { type: 'step.end', step_id: 'S1', outcome: 'pass' },
     ]);
     const flow = { version: 2 as const, name: 'test', steps: [{ id: 'S1', do: 'check', expect: [{ kind: 'text_visible', values: ['Hello'] }] }] };
     const r = verifyRun({ flow, runDir: tmp, mode: 'audit' });
-    const exp = r.steps[0].expectations[0] as Record<string, unknown>;
-    assert.equal(exp.met, true);
+    // With two-tier verification, missing assert events are no_evidence, not auto-pass
+    assert.equal(r.steps[0].automated.result, 'no_evidence');
+    assert.equal(r.steps[0].automated.checks[0].status, 'no_evidence');
   });
 });
 
