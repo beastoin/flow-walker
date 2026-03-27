@@ -44,8 +44,6 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
     flags: [{ name: '--json', type: 'boolean', description: 'JSON output' }] },
   { name: 'get', description: 'Fetch run data from hosted service', args: [{ name: 'run-id', required: true, description: 'Run ID' }],
     flags: [{ name: '--json', type: 'boolean', description: 'JSON output' }] },
-  { name: 'migrate', description: 'Migrate v1 flow to v2 format', args: [{ name: 'flow', required: true, description: 'Path to v1 flow YAML' }],
-    flags: [{ name: '--output', type: 'path', description: 'Output file path' }, { name: '--json', type: 'boolean', description: 'JSON output' }] },
   { name: 'snapshot', description: 'Save/load flow replay snapshots for fast re-execution. save extracts coordinates, timing, and commands from a successful run. load returns a replay plan so agents skip UI exploration and use exact coordinates.', args: [{ name: 'sub', required: true, description: 'save or load' }],
     flags: [
       { name: '--flow', type: 'path', description: 'Flow YAML path' },

@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { COMMAND_SCHEMAS, getCommandSchema, getSchemaEnvelope, SCHEMA_VERSION } from '../src/command-schema.ts';
 
 describe('COMMAND_SCHEMAS', () => {
-  it('contains all 9 commands', () => {
+  it('contains all 8 commands', () => {
     const names = COMMAND_SCHEMAS.map(s => s.name);
-    for (const cmd of ['walk', 'record', 'verify', 'report', 'push', 'get', 'migrate', 'snapshot', 'schema']) {
+    for (const cmd of ['walk', 'record', 'verify', 'report', 'push', 'get', 'snapshot', 'schema']) {
       assert.ok(names.includes(cmd), `missing ${cmd}`);
     }
-    assert.equal(COMMAND_SCHEMAS.length, 9);
+    assert.equal(COMMAND_SCHEMAS.length, 8);
   });
   it('does not include legacy run command', () => {
     assert.equal(getCommandSchema('run'), undefined);
@@ -38,9 +38,8 @@ describe('COMMAND_SCHEMAS', () => {
     const record = getCommandSchema('record');
     assert.ok(record); assert.ok(record.args.some(a => a.name === 'sub' && a.required));
   });
-  it('migrate schema has required flow arg', () => {
-    const migrate = getCommandSchema('migrate');
-    assert.ok(migrate); assert.ok(migrate.args.some(a => a.name === 'flow' && a.required));
+  it('does not include removed migrate command', () => {
+    assert.equal(getCommandSchema('migrate'), undefined);
   });
   it('report schema has required run-dir arg', () => {
     const report = getCommandSchema('report');

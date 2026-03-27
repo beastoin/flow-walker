@@ -30,40 +30,7 @@ export interface ScreenEdge {
   element: { ref: string; type: string; text: string };
 }
 
-// ── v1 Flow Types ──
-
-export interface FlowStep {
-  name: string;
-  press?: { type?: string; position?: string; hint?: string; bottom_nav_tab?: number; ref?: string; text?: string };
-  scroll?: string;
-  fill?: { type?: string; value: string; text?: string; focused?: boolean };
-  back?: boolean;
-  adb?: string;
-  wait?: number;
-  assert?: {
-    interactive_count?: { min: number; verified?: string };
-    bottom_nav_tabs?: { min: number };
-    has_type?: { type: string; min?: number };
-    text?: string;
-    text_visible?: string[];
-    text_not_visible?: string[];
-  };
-  screenshot?: string;
-  note?: string;
-}
-
-export interface Flow {
-  name: string;
-  description: string;
-  app?: string;
-  appUrl?: string;
-  covers?: string[];
-  prerequisites?: string[];
-  setup: string;
-  steps: FlowStep[];
-}
-
-// ── v2 Flow Types ──
+// ── Flow Types (v2 only) ──
 
 export type StepOutcome = 'pass' | 'fail' | 'skipped' | 'recovered';
 

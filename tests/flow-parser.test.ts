@@ -1,428 +1,308 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFlow } from '../src/flow-parser.ts';
+import { parseFlowV2 } from '../src/flow-parser.ts';
 
-describe('parseFlow', () => {
-  it('parses basic flow with name, description, setup', () => {
+describe('parseFlowV2', () => {
+  it('parses basic v2 flow with name, description, steps', () => {
     const yaml = `
+version: 2
 name: test-flow
 description: A test flow
-setup: normal
 
 steps:
-  - name: First step
-    screenshot: step1
+  - id: S1
+    name: First step
+    do: Check the home screen
 `;
-    const flow = parseFlow(yaml);
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.version, 2);
     assert.equal(flow.name, 'test-flow');
     assert.equal(flow.description, 'A test flow');
-    assert.equal(flow.setup, 'normal');
     assert.equal(flow.steps.length, 1);
+    assert.equal(flow.steps[0].id, 'S1');
+    assert.equal(flow.steps[0].do, 'Check the home screen');
   });
 
-  it('parses covers and prerequisites arrays', () => {
+  it('parses covers and preconditions arrays', () => {
     const yaml = `
+version: 2
 name: with-meta
 description: Flow with metadata
 covers:
   - app/lib/pages/home.dart
   - app/lib/pages/settings.dart
-prerequisites:
-  - auth_ready
-setup: normal
+preconditions:
+  - User is logged in
 
 steps:
-  - name: Step one
-    screenshot: s1
+  - id: S1
+    do: Check screen
 `;
-    const flow = parseFlow(yaml);
+    const flow = parseFlowV2(yaml);
     assert.deepEqual(flow.covers, ['app/lib/pages/home.dart', 'app/lib/pages/settings.dart']);
-    assert.deepEqual(flow.prerequisites, ['auth_ready']);
+    assert.deepEqual(flow.preconditions, ['User is logged in']);
   });
 
-  it('parses press step with inline object', () => {
+  it('parses expect with milestone and kind', () => {
     const yaml = `
-name: press-test
-description: Test press parsing
+version: 2
+name: expect-test
+
 steps:
-  - name: Press button
-    press: { type: button, position: rightmost }
-    screenshot: pressed
+  - id: S1
+    do: Open settings
+    expect:
+      - milestone: settings-visible
+        kind: screen-loaded
+        outcome: pass
 `;
-    const flow = parseFlow(yaml);
-    const step = flow.steps[0];
-    assert.deepEqual(step.press, { type: 'button', position: 'rightmost' });
-    assert.equal(step.screenshot, 'pressed');
+    const flow = parseFlowV2(yaml);
+    const expect = flow.steps[0].expect!;
+    assert.equal(expect.length, 1);
+    assert.equal(expect[0].milestone, 'settings-visible');
+    assert.equal(expect[0].kind, 'screen-loaded');
+    assert.equal(expect[0].outcome, 'pass');
   });
 
-  it('parses press with bottom_nav_tab as number', () => {
+  it('parses expect with values array', () => {
     const yaml = `
-name: nav-test
-description: Nav tab test
+version: 2
+name: values-test
+
 steps:
-  - name: Go to tab 2
-    press: { bottom_nav_tab: 2 }
+  - id: S1
+    do: Verify text
+    expect:
+      - milestone: text-check
+        values: [Featured, Home, Settings]
 `;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].press?.bottom_nav_tab, 2);
+    const flow = parseFlowV2(yaml);
+    assert.deepEqual(flow.steps[0].expect![0].values, ['Featured', 'Home', 'Settings']);
   });
 
-  it('parses scroll step', () => {
+  it('parses anchors as inline array', () => {
     const yaml = `
-name: scroll-test
-description: Scroll test
+version: 2
+name: anchors-test
+
 steps:
-  - name: Scroll down
-    scroll: down
-    screenshot: scrolled
+  - id: S1
+    do: Press button
+    anchors: [Settings, Profile]
 `;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].scroll, 'down');
+    const flow = parseFlowV2(yaml);
+    assert.deepEqual(flow.steps[0].anchors, ['Settings', 'Profile']);
   });
 
-  it('parses fill step', () => {
+  it('parses anchors as block array', () => {
     const yaml = `
-name: fill-test
-description: Fill test
+version: 2
+name: anchors-block-test
+
 steps:
-  - name: Fill text
-    fill: { type: textfield, value: "Hello world" }
-    screenshot: filled
+  - id: S1
+    do: Press button
+    anchors:
+      - Settings
+      - Profile
 `;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].fill?.type, 'textfield');
-    assert.equal(flow.steps[0].fill?.value, 'Hello world');
+    const flow = parseFlowV2(yaml);
+    assert.deepEqual(flow.steps[0].anchors, ['Settings', 'Profile']);
   });
 
-  it('parses back step', () => {
+  it('parses evidence with screenshot', () => {
     const yaml = `
-name: back-test
-description: Back test
+version: 2
+name: evidence-test
+
 steps:
-  - name: Go back
-    back: true
+  - id: S1
+    do: Check home
+    evidence:
+      - screenshot: home
 `;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].back, true);
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.steps[0].evidence![0].screenshot, 'home');
   });
 
-  it('parses assert with interactive_count', () => {
+  it('parses verify flag', () => {
     const yaml = `
-name: assert-test
-description: Assert test
+version: 2
+name: verify-test
+
 steps:
-  - name: Check elements
-    assert:
-      interactive_count: { min: 20 }
-    screenshot: home
+  - id: S1
+    do: Check home
+    verify: true
 `;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].assert?.interactive_count?.min, 20);
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.steps[0].verify, true);
   });
 
-  it('parses assert with bottom_nav_tabs', () => {
+  it('parses note field', () => {
     const yaml = `
-name: nav-assert
-description: Nav tabs assert
-steps:
-  - name: Check nav
-    assert:
-      bottom_nav_tabs: { min: 4 }
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].assert?.bottom_nav_tabs?.min, 4);
-  });
-
-  it('parses assert with has_type', () => {
-    const yaml = `
-name: type-assert
-description: Type assert
-steps:
-  - name: Check switches
-    assert:
-      has_type: { type: switch, min: 2 }
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].assert?.has_type?.type, 'switch');
-    assert.equal(flow.steps[0].assert?.has_type?.min, 2);
-  });
-
-  it('parses note field (ignored by executor)', () => {
-    const yaml = `
+version: 2
 name: note-test
-description: Note test
+
 steps:
-  - name: Step with note
-    note: "This is a human-readable note"
-    screenshot: noted
+  - id: S1
+    do: Check home
+    note: This is a note
 `;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].note, 'This is a human-readable note');
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.steps[0].note, 'This is a note');
+  });
+
+  it('parses defaults block', () => {
+    const yaml = `
+version: 2
+name: defaults-test
+defaults:
+  timeout_ms: 30000
+  retries: 2
+  vision: gpt-4o
+
+steps:
+  - id: S1
+    do: Check home
+`;
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.defaults!.timeout_ms, 30000);
+    assert.equal(flow.defaults!.retries, 2);
+    assert.equal(flow.defaults!.vision, 'gpt-4o');
+  });
+
+  it('parses flow-level evidence block', () => {
+    const yaml = `
+version: 2
+name: evidence-test
+evidence:
+  video: true
+
+steps:
+  - id: S1
+    do: Check home
+`;
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.evidence!.video, true);
   });
 
   it('parses multiple steps in order', () => {
     const yaml = `
+version: 2
 name: multi-step
-description: Multiple steps
+
 steps:
-  - name: Step 1
-    screenshot: s1
-  - name: Step 2
-    press: { type: button }
-  - name: Step 3
-    back: true
+  - id: S1
+    name: Step 1
+    do: First action
+  - id: S2
+    name: Step 2
+    do: Second action
+  - id: S3
+    name: Step 3
+    do: Third action
 `;
-    const flow = parseFlow(yaml);
+    const flow = parseFlowV2(yaml);
     assert.equal(flow.steps.length, 3);
-    assert.equal(flow.steps[0].name, 'Step 1');
-    assert.equal(flow.steps[1].name, 'Step 2');
-    assert.equal(flow.steps[2].name, 'Step 3');
+    assert.equal(flow.steps[0].id, 'S1');
+    assert.equal(flow.steps[1].id, 'S2');
+    assert.equal(flow.steps[2].id, 'S3');
   });
 
-  it('strips inline YAML comments', () => {
+  it('parses app and appUrl metadata', () => {
     const yaml = `
-name: comment-test
-description: Test with comments
-prerequisites:
-  - auth_ready  # User must be signed in
-setup: normal
-
-steps:
-  - name: Check home
-    screenshot: home
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.prerequisites![0], 'auth_ready');
-  });
-
-  it('throws on missing name', () => {
-    const yaml = `
-description: No name
-steps:
-  - name: Step 1
-`;
-    assert.throws(() => parseFlow(yaml), /missing required field: name/i);
-  });
-
-  it('throws on empty steps', () => {
-    const yaml = `
-name: empty
-description: Empty steps
-steps:
-`;
-    assert.throws(() => parseFlow(yaml), /no steps/i);
-  });
-
-  it('parses real-world flow format (home-navigation style)', () => {
-    const yaml = `# E2E Flow: Home screen navigation
-# Tests: snapshot, settings button, scroll, back navigation
-
-name: home-navigation
-description: Home screen snapshot, settings gear press, scroll in settings, back to home
-covers:
-  - app/lib/pages/home/page.dart
-  - app/lib/pages/settings/settings_drawer.dart
-prerequisites:
-  - auth_ready  # User completed real sign-in
-setup: normal
-
-steps:
-  - name: Snapshot home screen
-    assert:
-      interactive_count: { min: 20, verified: "flow-walker run10: 24 elements" }
-    screenshot: home
-
-  - name: Press settings gear (rightmost button in top bar)
-    press: { type: button, position: rightmost }
-    assert:
-      interactive_count: { min: 10 }
-    screenshot: settings
-
-  - name: Scroll down in settings
-    scroll: down
-    screenshot: settings-scrolled
-
-  - name: Back to home
-    back: true
-    assert:
-      interactive_count: { min: 5 }
-    screenshot: final
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.name, 'home-navigation');
-    assert.equal(flow.steps.length, 4);
-    assert.equal(flow.steps[0].assert?.interactive_count?.min, 20);
-    assert.equal(flow.steps[1].press?.type, 'button');
-    assert.equal(flow.steps[1].press?.position, 'rightmost');
-    assert.equal(flow.steps[2].scroll, 'down');
-    assert.equal(flow.steps[3].back, true);
-    assert.deepEqual(flow.covers, [
-      'app/lib/pages/home/page.dart',
-      'app/lib/pages/settings/settings_drawer.dart'
-    ]);
-  });
-
-  it('parses app and app_url metadata', () => {
-    const yaml = `
-name: omi-navigation
-description: Test Omi app navigation
+version: 2
+name: omi-test
 app: Omi
 app_url: https://omi.me
+
 steps:
-  - name: Check home
-    screenshot: home
+  - id: S1
+    do: Check home
 `;
-    const flow = parseFlow(yaml);
+    const flow = parseFlowV2(yaml);
     assert.equal(flow.app, 'Omi');
     assert.equal(flow.appUrl, 'https://omi.me');
   });
 
-  it('omits app fields when not present', () => {
+  it('strips inline YAML comments', () => {
     const yaml = `
-name: basic-flow
-description: No app metadata
+version: 2
+name: comment-test
+preconditions:
+  - auth_ready  # User must be signed in
+
 steps:
-  - name: Step 1
-    screenshot: s1
+  - id: S1
+    do: Check home
 `;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.app, undefined);
-    assert.equal(flow.appUrl, undefined);
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.preconditions![0], 'auth_ready');
   });
 
-  it('parses text_visible assertion with array', () => {
+  it('throws on missing name', () => {
     const yaml = `
-name: text-check
+version: 2
+description: No name
 steps:
-  - name: Verify featured text
-    assert:
-      text_visible: ["Featured", "Create Your Own App"]
+  - id: S1
+    do: Check
 `;
-    const flow = parseFlow(yaml);
-    assert.deepEqual(flow.steps[0].assert?.text_visible, ['Featured', 'Create Your Own App']);
+    assert.throws(() => parseFlowV2(yaml), /missing required field: name/i);
   });
 
-  it('parses text_not_visible assertion with array', () => {
+  it('throws on empty steps', () => {
     const yaml = `
-name: text-check
+version: 2
+name: empty
 steps:
-  - name: Verify no error text
-    assert:
-      text_not_visible: ["Error", "Sign In"]
 `;
-    const flow = parseFlow(yaml);
-    assert.deepEqual(flow.steps[0].assert?.text_not_visible, ['Error', 'Sign In']);
+    assert.throws(() => parseFlowV2(yaml), /no steps/i);
   });
 
-  it('parses both text_visible and text_not_visible together', () => {
+  it('parses multi-line scalar (folded >)', () => {
     const yaml = `
-name: text-check
+version: 2
+name: multiline-test
+
 steps:
-  - name: Verify screen text
-    assert:
-      text_visible: ["Featured"]
-      text_not_visible: ["Error"]
+  - id: S1
+    do: >
+      Open the settings screen
+      and verify elements
 `;
-    const flow = parseFlow(yaml);
-    assert.deepEqual(flow.steps[0].assert?.text_visible, ['Featured']);
-    assert.deepEqual(flow.steps[0].assert?.text_not_visible, ['Error']);
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.steps[0].do, 'Open the settings screen and verify elements');
   });
 
-  it('parses text_visible with single value (not array)', () => {
+  it('rejects legacy step keys (scroll, press, etc.)', () => {
     const yaml = `
-name: text-check
+version: 2
+name: legacy-test
+
 steps:
-  - name: Check text
-    assert:
-      text_visible: Featured
+  - id: S1
+    do: Check home
+    scroll: down
 `;
-    const flow = parseFlow(yaml);
-    assert.deepEqual(flow.steps[0].assert?.text_visible, ['Featured']);
+    assert.throws(() => parseFlowV2(yaml), /legacy action key/i);
   });
 
-  it('parses text assertions alongside other assertions', () => {
+  it('parses expect with min field', () => {
     const yaml = `
-name: combined-assert
-steps:
-  - name: Full check
-    assert:
-      interactive_count: { min: 10 }
-      text_visible: ["Featured", "Home"]
-      text_not_visible: ["Error"]
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].assert?.interactive_count?.min, 10);
-    assert.deepEqual(flow.steps[0].assert?.text_visible, ['Featured', 'Home']);
-    assert.deepEqual(flow.steps[0].assert?.text_not_visible, ['Error']);
-  });
+version: 2
+name: min-test
 
-  it('parses press with text field', () => {
-    const yaml = `
-name: text-press
 steps:
-  - name: Tap Next
-    press: { text: "Next" }
+  - id: S1
+    do: Verify elements
+    expect:
+      - milestone: elements-visible
+        kind: element-count
+        min: 10
 `;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].press?.text, 'Next');
-  });
-
-  it('parses fill with text field and value', () => {
-    const yaml = `
-name: text-fill
-steps:
-  - name: Enter email
-    fill: { text: "Email or phone", value: "$TEST_EMAIL" }
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].fill?.text, 'Email or phone');
-    assert.equal(flow.steps[0].fill?.value, '$TEST_EMAIL');
-  });
-
-  it('parses wait step', () => {
-    const yaml = `
-name: wait-test
-steps:
-  - name: Wait for OAuth
-    press: { text: "Next" }
-    wait: 5
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].wait, 5);
-    assert.equal(flow.steps[0].press?.text, 'Next');
-  });
-
-  it('parses wait-only step', () => {
-    const yaml = `
-name: wait-only
-steps:
-  - name: Pause
-    wait: 3
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].wait, 3);
-  });
-
-  it('parses adb step', () => {
-    const yaml = `
-name: adb-test
-steps:
-  - name: Clear app data
-    adb: "shell pm clear com.friend.ios.dev"
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].adb, 'shell pm clear com.friend.ios.dev');
-  });
-
-  it('parses fill with focused flag', () => {
-    const yaml = `
-name: focused-fill
-steps:
-  - name: Type email
-    fill: { value: "$TEST_EMAIL", focused: true }
-`;
-    const flow = parseFlow(yaml);
-    assert.equal(flow.steps[0].fill?.focused, true);
-    assert.equal(flow.steps[0].fill?.value, '$TEST_EMAIL');
+    const flow = parseFlowV2(yaml);
+    assert.equal(flow.steps[0].expect![0].min, 10);
   });
 });

@@ -2,7 +2,7 @@ import type { WalkerConfig, SnapshotElement } from './types.ts';
 import { computeFingerprint, deriveScreenName } from './fingerprint.ts';
 import { filterSafe } from './safety.ts';
 import { NavigationGraph } from './graph.ts';
-import { generateFlows, generateFlowsV2, writeFlows, writeFlowsV2 } from './yaml-writer.ts';
+import { generateFlowsV2, writeFlowsV2 } from './yaml-writer.ts';
 import { AgentBridge } from './agent-bridge.ts';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
 import { writeFileSync } from 'node:fs';

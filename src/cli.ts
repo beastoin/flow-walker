@@ -9,7 +9,6 @@ import { toYamlV2 } from './yaml-writer.ts';
 import { recordInit, recordStream, recordFinish } from './record.ts';
 import { verifyRun } from './verify.ts';
 import type { VerifyResult } from './verify.ts';
-import { migrateFlowV1toV2 } from './migrate.ts';
 import { saveSnapshot, loadSnapshot } from './snapshot.ts';
 import { detectAgentType } from './agent-bridge.ts';
 import { generateReportV2 } from './reporter.ts';
@@ -33,7 +32,6 @@ Usage:
   flow-walker report <run-dir>                Generate HTML report from run results
   flow-walker push <run-dir>                  Upload report and return shareable URL
   flow-walker get <run-id>                    Fetch run data from hosted service
-  flow-walker migrate <flow.yaml>             Migrate v1 flow to v2 format
   flow-walker snapshot <save|load>             Save/load flow replay snapshots
   flow-walker schema [command]                Show command schema for agent discovery
 
@@ -82,10 +80,9 @@ async function main(): Promise<void> {
     else if (subcommand === 'report') await handleReport(values, positionals, json);
     else if (subcommand === 'push') await handlePush(positionals, json);
     else if (subcommand === 'get') await handleGet(positionals, json);
-    else if (subcommand === 'migrate') await handleMigrate(values, positionals, json);
     else if (subcommand === 'snapshot') handleSnapshotCmd(values, positionals, json);
     else if (subcommand === 'schema') handleSchema(positionals);
-    else throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Unknown subcommand: ${subcommand}`, 'Available: walk, record, verify, report, push, get, migrate, snapshot, schema');
+    else throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Unknown subcommand: ${subcommand}`, 'Available: walk, record, verify, report, push, get, snapshot, schema');
   } catch (err) { console.error(formatError(err, json)); process.exit(2); }
 }
 async function handleWalk(values: Record<string, unknown>, _positionals: string[], json: boolean, agentPath: string, agentType: AgentType, dryRun: boolean): Promise<void> {
@@ -233,20 +230,6 @@ async function handlePush(positionals: string[], json: boolean): Promise<void> {
   if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required');
   const result = await pushReport(runDir, { apiUrl: process.env.FLOW_WALKER_API_URL });
   console.log(json ? JSON.stringify(result) : `Report uploaded. URL: ${result.htmlUrl}`);
-  process.exit(0);
-}
-async function handleMigrate(values: Record<string, unknown>, positionals: string[], json: boolean): Promise<void> {
-  const flowPath = positionals[1];
-  if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Flow YAML path is required');
-  validateFlowPath(flowPath);
-  const parsed = parseFlowFile(flowPath);
-  if ('version' in parsed && (parsed as FlowV2).version === 2) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Flow is already v2');
-  const v1 = parsed as import('./types.ts').Flow;
-  const v2 = migrateFlowV1toV2(v1);
-  const yaml = toYamlV2(v2);
-  const outputPath = values['output'] as string | undefined;
-  if (outputPath) { writeFileSync(outputPath, yaml); console.log(json ? JSON.stringify({ output: outputPath, name: v2.name, steps: v2.steps.length }) : `Migrated: ${outputPath}`); }
-  else process.stdout.write(yaml);
   process.exit(0);
 }
 async function handleGet(positionals: string[], json: boolean): Promise<void> {
