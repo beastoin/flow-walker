@@ -1,6 +1,6 @@
 export const EVENT_TYPES = [
   'run.start', 'step.start', 'action', 'assert',
-  'artifact', 'step.end', 'run.end', 'note',
+  'artifact', 'step.end', 'run.end', 'note', 'agent-review',
 ] as const;
 
 export type EventType = typeof EVENT_TYPES[number];
@@ -15,7 +15,7 @@ export interface RecordEvent {
   [key: string]: unknown;
 }
 
-const STEP_SCOPED: Set<string> = new Set(['step.start', 'action', 'assert', 'artifact', 'step.end']);
+const STEP_SCOPED: Set<string> = new Set(['step.start', 'action', 'assert', 'artifact', 'step.end', 'agent-review']);
 
 export function validateEvent(event: unknown): { valid: boolean; error?: string; warning?: string } {
   if (!event || typeof event !== 'object') return { valid: false, error: 'Event must be an object' };

@@ -56,7 +56,8 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
   const passCount = run.steps.filter(s => s.outcome === 'pass').length;
   const failCount = run.steps.filter(s => s.outcome === 'fail').length;
   const skipCount = run.steps.filter(s => s.outcome === 'skipped').length;
-  const resultClass = run.result === 'pass' ? 'pass' : 'fail';
+  const resultClass = run.result === 'pass' ? 'pass' : run.result === 'unverified' ? 'unverified' : 'fail';
+  const resultLabel = run.mode === 'audit' && run.result !== 'fail' ? 'AUDIT' : run.result.toUpperCase();
   const durationStr = durationMs > 0 ? formatDuration(durationMs) : '';
 
   // Tier summaries
@@ -145,6 +146,7 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
   .badge.pass { background: #00d26a22; color: #00d26a; border: 1px solid #00d26a44; }
   .badge.fail { background: #e9456022; color: #e94560; border: 1px solid #e9456044; }
   .badge.pending { background: #f0a50022; color: #f0a500; border: 1px solid #f0a50044; }
+  .badge.unverified { background: #f0a50022; color: #f0a500; border: 1px solid #f0a50044; }
   .stats { display: flex; gap: 16px; justify-content: center; margin-top: 12px; font-size: 0.85em; flex-wrap: wrap; }
   .stat { display: flex; align-items: center; gap: 4px; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
@@ -201,7 +203,7 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
 <div class="header">
   <h1>${escHtml(run.flow)}</h1>
   <div class="meta">mode: ${escHtml(run.mode)} &middot; ${run.steps.length} steps${durationStr ? ` &middot; ${durationStr}` : ''}</div>
-  <span class="badge ${resultClass}">${run.result}</span>
+  <span class="badge ${resultClass}">${resultLabel}</span>
   <div class="stats">
     <span class="stat"><span class="dot pass"></span> ${passCount} pass</span>
     ${failCount > 0 ? `<span class="stat"><span class="dot fail"></span> ${failCount} fail</span>` : ''}

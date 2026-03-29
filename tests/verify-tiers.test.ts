@@ -180,4 +180,97 @@ describe('two-tier verification', () => {
     const result = verifyRun({ flow: basicFlow, runDir: tmpDir, mode: 'balanced' });
     assert.equal(result.agentResult, 'pass');
   });
+
+  it('returns unverified when all automated=no_evidence and all agent=pending', () => {
+    const flow: FlowV2 = {
+      version: 2, name: 'unverified-test',
+      steps: [{
+        id: 'S1', do: 'Open home', claim: 'Home visible',
+        expect: [{ kind: 'text_visible', milestone: 'home-text', values: ['Home'] }],
+        judge: [{ prompt: 'Is home visible?', screenshot: 'step-S1', look_for: ['home'] }],
+      }],
+    };
+    writeFileSync(join(tmpDir, 'events.jsonl'), [
+      JSON.stringify({ type: 'step.start', step_id: 'S1' }),
+      JSON.stringify({ type: 'artifact', step_id: 'S1', path: 'step-S1.webp' }),
+      JSON.stringify({ type: 'step.end', step_id: 'S1', outcome: 'pass' }),
+    ].join('\n'));
+    const result = verifyRun({ flow, runDir: tmpDir, mode: 'audit' });
+    assert.equal(result.result, 'unverified');
+    assert.equal(result.automatedResult, 'no_evidence');
+    assert.equal(result.agentResult, 'pending');
+  });
+
+  it('returns pass when automated checks pass and no agent prompts', () => {
+    const flow: FlowV2 = {
+      version: 2, name: 'pass-test',
+      steps: [{
+        id: 'S1', do: 'Check elements',
+        expect: [{ kind: 'screen-match', milestone: 'home' }],
+      }],
+    };
+    writeFileSync(join(tmpDir, 'events.jsonl'), [
+      JSON.stringify({ type: 'assert', step_id: 'S1', milestone: 'home', passed: true }),
+      JSON.stringify({ type: 'step.end', step_id: 'S1', outcome: 'pass' }),
+    ].join('\n'));
+    const result = verifyRun({ flow, runDir: tmpDir, mode: 'balanced' });
+    assert.equal(result.result, 'pass');
+  });
+
+  it('agent-review event resolves pending prompt to pass', () => {
+    const flow: FlowV2 = {
+      version: 2, name: 'agent-review-test',
+      steps: [{
+        id: 'S1', do: 'Open home', claim: 'Home visible',
+        judge: [{ prompt: 'Is home visible?', screenshot: 'step-S1', look_for: ['home'] }],
+      }],
+    };
+    writeFileSync(join(tmpDir, 'events.jsonl'), [
+      JSON.stringify({ type: 'step.start', step_id: 'S1' }),
+      JSON.stringify({ type: 'artifact', step_id: 'S1', path: 'step-S1.webp' }),
+      JSON.stringify({ type: 'agent-review', step_id: 'S1', prompt_idx: 0, verdict: 'pass', reason: 'Home tab bar visible' }),
+      JSON.stringify({ type: 'step.end', step_id: 'S1', outcome: 'pass' }),
+    ].join('\n'));
+    const result = verifyRun({ flow, runDir: tmpDir, mode: 'balanced' });
+    assert.equal(result.steps[0].agent.result, 'pass');
+    assert.equal(result.steps[0].agent.prompts[0].status, 'pass');
+    assert.equal(result.agentResult, 'pass');
+  });
+
+  it('agent-review event with verdict=fail marks prompt as fail', () => {
+    const flow: FlowV2 = {
+      version: 2, name: 'agent-review-fail',
+      steps: [{
+        id: 'S1', do: 'Open home',
+        judge: [{ prompt: 'Is home visible?' }],
+      }],
+    };
+    writeFileSync(join(tmpDir, 'events.jsonl'), [
+      JSON.stringify({ type: 'agent-review', step_id: 'S1', prompt_idx: 0, verdict: 'fail', reason: 'Error dialog shown' }),
+      JSON.stringify({ type: 'step.end', step_id: 'S1', outcome: 'pass' }),
+    ].join('\n'));
+    const result = verifyRun({ flow, runDir: tmpDir, mode: 'balanced' });
+    assert.equal(result.steps[0].agent.result, 'fail');
+    assert.equal(result.steps[0].agent.prompts[0].status, 'fail');
+  });
+
+  it('agent-review resolves unverified to pass when automated also passes', () => {
+    const flow: FlowV2 = {
+      version: 2, name: 'full-verify',
+      steps: [{
+        id: 'S1', do: 'Check home', claim: 'Home visible',
+        expect: [{ kind: 'screen-match', milestone: 'home' }],
+        judge: [{ prompt: 'Is home visible?', screenshot: 'step-S1' }],
+      }],
+    };
+    writeFileSync(join(tmpDir, 'events.jsonl'), [
+      JSON.stringify({ type: 'assert', step_id: 'S1', milestone: 'home', passed: true }),
+      JSON.stringify({ type: 'agent-review', step_id: 'S1', prompt_idx: 0, verdict: 'pass' }),
+      JSON.stringify({ type: 'step.end', step_id: 'S1', outcome: 'pass' }),
+    ].join('\n'));
+    const result = verifyRun({ flow, runDir: tmpDir, mode: 'balanced' });
+    assert.equal(result.result, 'pass');
+    assert.equal(result.automatedResult, 'pass');
+    assert.equal(result.agentResult, 'pass');
+  });
 });

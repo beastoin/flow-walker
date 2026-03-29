@@ -176,4 +176,37 @@ describe('buildHtmlV2', () => {
     const html = buildHtmlV2(data);
     assert.ok(html.includes('@media (max-width: 768px)'));
   });
+
+  it('renders unverified badge with amber styling', () => {
+    const data = makeResult({
+      flow: 'unverified-test', mode: 'balanced', result: 'unverified' as const,
+      automatedResult: 'no_evidence' as const,
+      agentResult: 'pending' as const,
+      steps: [{
+        id: 'S1', name: 'check', do: 'Open home', outcome: 'pass' as const,
+        events: [], expectations: [],
+        automated: { result: 'no_evidence' as const, checks: [{ kind: 'text_visible', expected: {}, actual: {}, status: 'no_evidence' as const }] },
+        agent: { result: 'pending' as const, prompts: [{ prompt: 'Is home visible?', status: 'pending' as const }] },
+      }],
+      issues: [],
+    });
+    const html = buildHtmlV2(data);
+    assert.ok(html.includes('UNVERIFIED'), 'badge should say UNVERIFIED');
+    assert.ok(html.includes('unverified'), 'should use unverified CSS class');
+  });
+
+  it('renders AUDIT badge when mode is audit', () => {
+    const data = makeResult({
+      flow: 'audit-badge', mode: 'audit', result: 'unverified' as const,
+      steps: [{
+        id: 'S1', name: 'x', do: 'x', outcome: 'pass' as const,
+        events: [], expectations: [],
+        automated: { result: 'no_evidence' as const, checks: [{ kind: 'text_visible', expected: {}, actual: {}, status: 'no_evidence' as const }] },
+        agent: { result: 'pending' as const, prompts: [{ prompt: 'test', status: 'pending' as const }] },
+      }],
+      issues: [],
+    });
+    const html = buildHtmlV2(data);
+    assert.ok(html.includes('AUDIT'), 'audit mode badge should say AUDIT');
+  });
 });

@@ -5,11 +5,14 @@ import { spawn, execSync } from 'node:child_process';
 import { validateEvent } from './event-schema.ts';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
 import { loadSnapshot, saveSnapshot } from './snapshot.ts';
+import { parseFlowFile } from './flow-parser.ts';
+import type { FlowV2 } from './types.ts';
 import type { ReplayPlan } from './snapshot.ts';
 
 export type Platform = 'mobile' | 'desktop';
+export interface StepRecipe { id: string; name?: string; events: string[]; }
 export interface RecordInitOptions { flowPath: string; outputDir: string; runId?: string; noVideo?: boolean; device?: string; platform?: Platform; }
-export interface RecordInitResult { id: string; dir: string; video?: boolean; replay?: ReplayPlan; }
+export interface RecordInitResult { id: string; dir: string; video?: boolean; replay?: ReplayPlan; recipe?: StepRecipe[]; }
 
 export function recordInit(opts: RecordInitOptions): RecordInitResult {
   const id = opts.runId || randomBytes(5).toString('base64url').slice(0, 10);
@@ -72,7 +75,14 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
     if (plan.valid && plan.mode === 'replay') replay = plan;
   } catch { /* no snapshot or invalid — explore mode */ }
 
-  return { id, dir: runDir, video: videoStarted, replay };
+  // Generate step recipes from flow YAML
+  let recipe: StepRecipe[] | undefined;
+  try {
+    const flow = parseFlowFile(opts.flowPath);
+    recipe = generateRecipe(flow);
+  } catch { /* flow parse failed — no recipe */ }
+
+  return { id, dir: runDir, video: videoStarted, replay, recipe };
 }
 
 export function recordStream(ctx: { runId: string; runDir: string }, lines: string[]): number {
@@ -94,7 +104,7 @@ export function recordStream(ctx: { runId: string; runDir: string }, lines: stri
   return count;
 }
 
-export interface RecordFinishResult { snapshotSaved?: boolean; snapshotSteps?: number; }
+export interface RecordFinishResult { snapshotSaved?: boolean; snapshotSteps?: number; warnings?: string[]; }
 
 export function recordFinish(ctx: { runId: string; runDir: string; status: string; device?: string; flowPath?: string; flowVerifySteps?: string[] }): RecordFinishResult {
   const runDir = findDir(ctx.runDir, ctx.runId);
@@ -153,10 +163,37 @@ export function recordFinish(ctx: { runId: string; runDir: string; status: strin
     delete meta.videoDevicePath;
   }
 
+  // Detect event gaps: compare flow expectations vs streamed events
+  const warnings: string[] = [];
+  try {
+    const flowLockPath = join(runDir, 'flow.lock.yaml');
+    if (existsSync(flowLockPath)) {
+      const flow = parseFlowFile(flowLockPath);
+      const events = eventLines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      const stepEventsMap = new Map<string, Record<string, unknown>[]>();
+      for (const ev of events) {
+        const sid = ev.step_id as string;
+        if (sid) { if (!stepEventsMap.has(sid)) stepEventsMap.set(sid, []); stepEventsMap.get(sid)!.push(ev); }
+      }
+      for (const step of flow.steps) {
+        const evs = stepEventsMap.get(step.id) || [];
+        if (step.expect && step.expect.length > 0) {
+          const hasAssert = evs.some(e => e.type === 'assert');
+          if (!hasAssert) warnings.push(`Step ${step.id}: missing assert event (flow expects ${step.expect.map(e => e.kind || e.milestone).join(', ')})`);
+        }
+        if (step.judge && step.judge.length > 0) {
+          const hasArtifact = evs.some(e => e.type === 'artifact');
+          if (!hasArtifact) warnings.push(`Step ${step.id}: missing artifact/screenshot (flow has judge prompts)`);
+        }
+      }
+    }
+  } catch { /* best-effort gap detection */ }
+  if (warnings.length > 0) meta.warnings = warnings;
+
   writeFileSync(metaPath, JSON.stringify(meta));
 
   // Auto-save snapshot on successful run
-  const result: RecordFinishResult = {};
+  const result: RecordFinishResult = { warnings: warnings.length > 0 ? warnings : undefined };
   if (ctx.status === 'pass' && ctx.flowPath) {
     try {
       const snap = saveSnapshot({ flowPath: ctx.flowPath, runDir, device: ctx.device, flowVerifySteps: ctx.flowVerifySteps });
@@ -165,6 +202,42 @@ export function recordFinish(ctx: { runId: string; runDir: string; status: strin
     } catch { /* best-effort — snapshot save failed */ }
   }
   return result;
+}
+
+/** Generate per-step event recipes from flow YAML so agents know exactly what to stream */
+export function generateRecipe(flow: FlowV2): StepRecipe[] {
+  return flow.steps.map(step => {
+    const events: string[] = ['step.start'];
+    events.push('action');
+    // If step has judge (needs screenshot), include artifact
+    if (step.judge && step.judge.length > 0) {
+      events.push(`artifact (screenshot: step-${step.id}.webp)`);
+    } else if (step.evidence && step.evidence.length > 0) {
+      events.push(`artifact (screenshot: step-${step.id}.webp)`);
+    }
+    // If step has expect, include assert events
+    if (step.expect) {
+      for (const exp of step.expect) {
+        if (exp.milestone && exp.kind) {
+          const valuesStr = exp.values ? `: ${exp.values.join(', ')}` : '';
+          events.push(`assert (${exp.kind}${valuesStr}, milestone: ${exp.milestone})`);
+        } else if (exp.milestone) {
+          events.push(`assert (milestone: ${exp.milestone})`);
+        } else if (exp.kind) {
+          const valuesStr = exp.values ? `: ${exp.values.join(', ')}` : '';
+          events.push(`assert (${exp.kind}${valuesStr})`);
+        }
+      }
+    }
+    // If step has judge, include agent-review events
+    if (step.judge && step.judge.length > 0) {
+      step.judge.forEach((j, idx) => {
+        events.push(`agent-review (prompt_idx: ${idx}, verdict: pass|fail)`);
+      });
+    }
+    events.push('step.end');
+    return { id: step.id, name: step.name, events };
+  });
 }
 
 function sleepSync(ms: number): void {

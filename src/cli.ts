@@ -132,6 +132,7 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
       if (result.video) msg += '\n  Video: recording';
       if (result.replay) msg += `\n  Replay: snapshot found — ${Object.keys(result.replay.steps!).length} cached steps, verify: [${result.replay.verifySteps!.join(', ')}]`;
       else msg += '\n  Replay: no snapshot — explore mode (snapshot will be saved on pass)';
+      if (result.recipe) msg += `\n  Recipe: ${result.recipe.length} steps with event sequences`;
       console.log(msg);
     }
     process.exit(0);
@@ -176,6 +177,10 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     } else {
       let msg = `Run ${runId} finished: ${status}`;
       if (finishResult.snapshotSaved) msg += `\n  Snapshot saved: ${finishResult.snapshotSteps} steps (next run will use cached coordinates)`;
+      if (finishResult.warnings && finishResult.warnings.length > 0) {
+        msg += `\n  Warnings (${finishResult.warnings.length}):`;
+        for (const w of finishResult.warnings) msg += `\n    - ${w}`;
+      }
       console.log(msg);
     }
     process.exit(0);

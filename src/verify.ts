@@ -39,7 +39,7 @@ export interface VerifyStepResult {
 
 export interface VerifyResult {
   schema: string;
-  flow: string; mode: string; result: 'pass' | 'fail';
+  flow: string; mode: string; result: 'pass' | 'fail' | 'unverified';
   automatedResult: 'pass' | 'fail' | 'no_evidence';
   agentResult: 'pending' | 'pass' | 'fail';
   steps: VerifyStepResult[]; issues: string[];
@@ -162,7 +162,19 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
         });
       }
     }
-    const agentResult: AgentPrompt['status'] = agentPrompts.length === 0 ? 'pass' : 'pending';
+    // Process agent-review events: resolve pending prompts
+    const reviewEvents = evs.filter(e => e.type === 'agent-review');
+    for (const rev of reviewEvents) {
+      const idx = typeof rev.prompt_idx === 'number' ? rev.prompt_idx : -1;
+      const verdict = String(rev.verdict || '');
+      if (idx >= 0 && idx < agentPrompts.length && (verdict === 'pass' || verdict === 'fail')) {
+        agentPrompts[idx].status = verdict;
+      }
+    }
+    const agentResult: AgentPrompt['status'] = agentPrompts.length === 0 ? 'pass'
+      : agentPrompts.some(p => p.status === 'fail') ? 'fail'
+      : agentPrompts.some(p => p.status === 'pending') ? 'pending'
+      : 'pass';
 
     if (mode === 'strict' && outcome === 'skipped') { issues.push(`Step ${step.id}: skipped (not allowed in strict mode)`); outcome = 'fail'; }
     if (outcome === 'fail') {
@@ -179,10 +191,18 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
     });
   }
   if (mode === 'strict') { for (const sid of stepEvents.keys()) { if (!seenStepIds.has(sid)) issues.push(`Unknown step_id in events: ${sid}`); } }
-  const result: 'pass' | 'fail' = steps.some(s => s.outcome === 'fail') ? 'fail' : 'pass';
+  const hasFailedStep = steps.some(s => s.outcome === 'fail');
   const automatedResult = steps.some(s => s.automated.result === 'fail') ? 'fail' as const
     : steps.some(s => s.automated.result === 'no_evidence') ? 'no_evidence' as const : 'pass' as const;
   const overallAgent = steps.some(s => s.agent.result === 'pending' && s.agent.prompts.length > 0) ? 'pending' as const : 'pass' as const;
+  // Determine overall result: 'fail' if any step failed, 'unverified' if no real checks ran, 'pass' if verified
+  const hasChecks = steps.some(s => (s.automated.checks.length > 0) || (s.agent.prompts.length > 0));
+  const allAutoNoEvidence = !steps.some(s => s.automated.result === 'pass' || s.automated.result === 'fail');
+  const allAgentPending = !steps.some(s => s.agent.result === 'pass' || s.agent.result === 'fail');
+  let result: 'pass' | 'fail' | 'unverified';
+  if (hasFailedStep) { result = 'fail'; }
+  else if (hasChecks && allAutoNoEvidence && allAgentPending) { result = 'unverified'; }
+  else { result = 'pass'; }
   const verifyResult: VerifyResult = { schema: 'flow-walker.run.v3', flow: flow.name, mode, result, automatedResult, agentResult: overallAgent, steps, issues };
   const outputPath = opts.outputPath || join(runDir, 'run.json');
   writeFileSync(outputPath, JSON.stringify(verifyResult));
