@@ -13,7 +13,7 @@ import { saveSnapshot, loadSnapshot } from './snapshot.ts';
 import { detectAgentType } from './agent-bridge.ts';
 import { generateReportV2 } from './reporter.ts';
 import { FlowWalkerError, ErrorCodes, formatError } from './errors.ts';
-import { validateFlowPath, validateOutputDir, validateUri, validateBundleId } from './validate.ts';
+import { validateFlowPath, validateOutputDir, validateUri, validateBundleId, validateRunDir } from './validate.ts';
 import { COMMAND_SCHEMAS, SCHEMA_VERSION, getCommandSchema, getSchemaEnvelope } from './command-schema.ts';
 import { createRequire } from 'node:module';
 const PKG_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   if (values.version) { console.log(json ? JSON.stringify({ version: PKG_VERSION, schemaVersion: SCHEMA_VERSION }) : `flow-walker ${PKG_VERSION} (schema ${SCHEMA_VERSION})`); process.exit(0); }
   if (values.help || !subcommand) {
     if (json && subcommand) { const schema = getCommandSchema(subcommand); if (schema) { console.log(JSON.stringify(schema)); process.exit(0); } }
-    printUsage(); process.exit(subcommand ? 0 : 1);
+    printUsage(); process.exit(subcommand ? 0 : 2);
   }
   try {
     if (subcommand === 'walk') await handleWalk(values, positionals, json, agentPath, agentType, dryRun);
@@ -141,6 +141,7 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     const runId = values['run-id'] as string; const runDir = values['run-dir'] as string;
     if (!runId) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record stream requires --run-id');
     if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record stream requires --run-dir');
+    validateOutputDir(runDir);
     const eventsFlag = values['events'] as string | undefined;
     let lines: string[];
     if (eventsFlag) {
@@ -160,6 +161,7 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
     const status = (values['status'] as string) || 'pass';
     if (!runId) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-id');
     if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-dir');
+    validateOutputDir(runDir);
     const finishDevice = process.env.AGENT_FLUTTER_DEVICE || undefined;
     const flowPath = values['flow'] as string | undefined;
     let flowVerifySteps: string[] | undefined;
@@ -192,6 +194,7 @@ async function handleVerify(values: Record<string, unknown>, positionals: string
   validateFlowPath(flowPath);
   const runDir = values['run-dir'] as string;
   if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'verify requires --run-dir');
+  validateOutputDir(runDir);
   const mode = (values['mode'] as string || 'balanced') as 'strict' | 'balanced' | 'audit';
   if (!['strict', 'balanced', 'audit'].includes(mode)) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Invalid mode: ${mode}`);
   const parsed = parseFlowFile(flowPath);
@@ -209,16 +212,17 @@ async function handleVerify(values: Record<string, unknown>, positionals: string
     const result = recheckRun({ flow, runDir });
     if (json) console.log(JSON.stringify(result));
     else { const icon = result.result === 'pass' ? '✓' : '✗'; console.log(`${icon} Recheck "${result.flow}" [${result.mode}]: ${result.result.toUpperCase()}`); for (const issue of result.issues) console.log(`  - ${issue}`); }
-    process.exit(result.result === 'pass' ? 0 : 1);
+    process.exit(result.result === 'pass' ? 0 : result.result === 'fail' ? 1 : 2);
   }
   const result = verifyRun({ flow, runDir, mode, eventsPath: values['events'] as string | undefined, outputPath: values['output'] as string | undefined });
   if (json) console.log(JSON.stringify(result));
-  else { const icon = result.result === 'pass' ? '✓' : '✗'; console.log(`${icon} Verify "${result.flow}" [${result.mode}]: ${result.result.toUpperCase()}`); for (const issue of result.issues) console.log(`  - ${issue}`); }
-  process.exit(result.result === 'pass' ? 0 : 1);
+  else { const icon = result.result === 'pass' ? '✓' : result.result === 'unverified' ? '?' : '✗'; console.log(`${icon} Verify "${result.flow}" [${result.mode}]: ${result.result.toUpperCase()}`); for (const issue of result.issues) console.log(`  - ${issue}`); }
+  process.exit(result.result === 'pass' ? 0 : result.result === 'fail' ? 1 : 2);
 }
 async function handleReport(values: Record<string, unknown>, positionals: string[], json: boolean): Promise<void> {
   const runDir = positionals[1];
   if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required');
+  validateOutputDir(runDir);
   const runJsonPath = `${runDir}/run.json`;
   if (!existsSync(runJsonPath)) throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${runDir}`, 'Run "flow-walker verify <flow.yaml> --run-dir <dir>" first to generate run.json');
   const raw = JSON.parse(readFileSync(runJsonPath, 'utf-8'));
@@ -249,6 +253,7 @@ function validateV2RunJson(raw: Record<string, unknown>, runDir: string): void {
 async function handlePush(positionals: string[], json: boolean): Promise<void> {
   const runDir = positionals[1];
   if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required');
+  validateOutputDir(runDir);
   const result = await pushReport(runDir, { apiUrl: process.env.FLOW_WALKER_API_URL });
   console.log(json ? JSON.stringify(result) : `Report uploaded. URL: ${result.htmlUrl}`);
   process.exit(0);
@@ -270,6 +275,7 @@ function handleSnapshotCmd(values: Record<string, unknown>, positionals: string[
     if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot save requires --flow <path>');
     if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot save requires --run-dir <path>');
     validateFlowPath(flowPath);
+    validateOutputDir(runDir);
     const device = (values['device'] as string) || process.env.AGENT_FLUTTER_DEVICE || undefined;
     const resolution = (values['resolution'] as string) || undefined;
     // Extract flow-defined verify steps from YAML

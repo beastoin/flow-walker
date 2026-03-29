@@ -33,7 +33,6 @@ Requires Node.js >= 22, [agent-flutter](https://github.com/beastoin/agent-flutte
 | `push` | Upload report, get shareable URL |
 | `get` | Fetch run data from hosted service |
 | `snapshot` | Save/load replay data for fast re-execution |
-| `migrate` | Convert v1 flows to v2 format |
 | `schema` | Machine-readable command introspection |
 
 ## Recording pipeline
@@ -75,6 +74,7 @@ Events are streamed as NDJSON. Step-scoped events require `step_id`.
 | `action` | step | User action (tap, swipe, fill, keyevent) |
 | `assert` | step | Assertion check with pass/fail |
 | `artifact` | step | Screenshot or file captured |
+| `agent-review` | step | Agent tier 2 review verdict (pass/fail) |
 | `step.end` | step | Step completed |
 | `run.end` | global | Run finished |
 | `note` | step | Free-form annotation |
@@ -136,7 +136,9 @@ steps:
 | `do` | yes | Detailed action instructions |
 | `verify` | no | If `true`, step is always verified on replay |
 | `expect` | no | Expectations to check (`text_visible`, `interactive_count`) |
+| `claim` | no | What this step proves (shown as headline in report) |
 | `evidence` | no | Screenshots/artifacts to capture |
+| `judge` | no | Tier 2 agent review prompts (vision-based verification) |
 | `note` | no | Implementation details, coordinates, edge cases |
 
 ## Auto-explore
@@ -204,26 +206,36 @@ The `verify` command produces `run.json` in `VerifyResult` format. The `report` 
 
 ```json
 {
+  "schema": "flow-walker.run.v3",
   "flow": "conversations",
   "mode": "balanced",
   "result": "pass",
+  "automatedResult": "pass",
+  "agentResult": "pass",
   "steps": [
     {
       "id": "S1",
       "name": "Verify home screen",
       "do": "Verify the home screen shows Conversations heading",
+      "claim": "Home screen shows conversations",
       "outcome": "pass",
+      "automated": {
+        "result": "pass",
+        "checks": [{"kind": "text_visible", "status": "pass", "expected": {"values": ["Conversations"]}, "actual": {"found": true}}]
+      },
+      "agent": {
+        "result": "pass",
+        "prompts": []
+      },
       "events": [],
-      "expectations": [
-        {"kind": "text_visible", "values": ["Conversations"], "met": true}
-      ]
+      "expectations": []
     }
   ],
   "issues": []
 }
 ```
 
-Key fields: top-level `result` (not `status`), per-step `outcome` (not `status`).
+Key fields: top-level `result` (`pass`|`fail`|`unverified`), per-step `outcome` (not `status`), two-tier results (`automated` + `agent`).
 
 ## Agent-friendly design
 
@@ -265,9 +277,8 @@ src/
 ├── fingerprint.ts      Screen identity hashing
 ├── graph.ts            Navigation graph
 ├── safety.ts           Blocklist evaluation
-├── run-schema.ts       RunResult type and validation
+├── run-schema.ts       Run ID generation
 ├── yaml-writer.ts      YAML flow generation
-├── migrate.ts          V1 → V2 flow migration
 ├── command-schema.ts   Command schemas for agent discovery
 ├── errors.ts           Structured error handling
 ├── validate.ts         Input validation

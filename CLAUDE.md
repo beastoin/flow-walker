@@ -11,12 +11,14 @@ Do not edit this repo directly — add a new phase program in autoloop instead.
 `flow-walker` is a Node.js CLI that auto-explores Flutter apps, executes YAML test flows, and generates HTML reports.
 It builds on [agent-flutter](https://github.com/beastoin/agent-flutter) for all device interaction.
 
-**Six commands:**
+**Eight commands:**
 - `walk` — BFS-explore the app, discover screens, generate YAML flows
-- `run` — Execute a YAML flow, produce run.json + video + screenshots
-- `report` — Generate self-contained HTML report from run results
+- `record` — 3-phase recording: `init` → `stream` → `finish`
+- `verify` — Verify recorded events against flow expectations, produce run.json
+- `report` — Generate self-contained HTML report from run.json
 - `push` — Upload report to hosted service, return shareable URL
 - `get` — Fetch run data from hosted service by run ID
+- `snapshot` — Save/load replay data for fast re-execution
 - `schema` — Machine-readable command introspection
 
 **Design principles:**
@@ -36,10 +38,11 @@ It builds on [agent-flutter](https://github.com/beastoin/agent-flutter) for all 
 - `src/yaml-writer.ts` — YAML flow generation
 - `src/agent-bridge.ts` — thin wrapper around agent-flutter CLI
 - `src/flow-parser.ts` — YAML → Flow object parsing
-- `src/runner.ts` — flow step execution engine
+- `src/record.ts` — 3-phase recording (init/stream/finish)
+- `src/verify.ts` — event verification, VerifyResult schema, two-tier checks
 - `src/reporter.ts` — HTML report generation
-- `src/capture.ts` — video, screenshot, logcat helpers
-- `src/run-schema.ts` — RunResult type + validation + run ID generation
+- `src/snapshot.ts` — save/load replay snapshots
+- `src/run-schema.ts` — run ID generation
 - `src/types.ts` — shared type definitions
 - `src/errors.ts` — structured error handling (FlowWalkerError)
 - `src/validate.ts` — input validation (paths, URIs, control chars)

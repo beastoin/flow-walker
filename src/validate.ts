@@ -101,7 +101,7 @@ export function validateRunDir(dir: string): void {
     throw new FlowWalkerError(
       ErrorCodes.FILE_NOT_FOUND,
       `Run directory not found: ${dir}`,
-      `Provide the output directory from a previous flow-walker run`,
+      `Provide the output directory from a previous flow-walker record session`,
     );
   }
 
@@ -109,7 +109,7 @@ export function validateRunDir(dir: string): void {
     throw new FlowWalkerError(
       ErrorCodes.FILE_NOT_FOUND,
       `run.json not found in ${dir}`,
-      `Run a flow first: flow-walker run <flow.yaml> --output-dir ${dir}`,
+      `Run "flow-walker verify <flow.yaml> --run-dir ${dir}" to generate run.json`,
     );
   }
 }
