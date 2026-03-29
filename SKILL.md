@@ -29,25 +29,30 @@ Every flow-walker command supports `--json`. Always use it. Parse the JSON outpu
 ### Steps
 
 ```bash
-# 1. Connect agent-flutter to the app
-agent-flutter connect --json
-# => {"status":"connected","vmServiceUri":"ws://..."}
+# 1. Connect agent-flutter to the running app
+agent-flutter connect
+# Connects to the Flutter app via ADB. Must succeed before walk.
 
 # 2. Walk the app — BFS explores every screen
-flow-walker walk --json
+#    REQUIRED: --skip-connect (reuse session from step 1), --app-uri, or --bundle-id
+flow-walker walk --skip-connect --json
 # => NDJSON stream: one event per line (screens discovered, edges found, flows generated)
 
-# 3. Or generate a scaffold flow for a specific feature
+# 3. Or generate a scaffold flow for a specific feature (no connection needed)
 flow-walker walk --name login-flow --output flows/login.yaml --json
 # => {"flow":"login-flow","path":"flows/login.yaml"}
 ```
 
 ### Key flags
+- `--skip-connect` — reuse existing agent-flutter session (most common)
+- `--app-uri ws://...` — connect by VM Service URI
+- `--bundle-id com.example.app` — connect by bundle ID
 - `--max-depth 3` — limit exploration depth (default: 5)
 - `--dry-run` — snapshot without pressing anything
-- `--skip-connect` — reuse existing agent-flutter session
 - `--blocklist "delete,logout"` — prevent pressing destructive elements
 - `--agent swift` — use agent-swift instead of agent-flutter
+
+**Note:** One of `--skip-connect`, `--app-uri`, or `--bundle-id` is required (unless using `--name` for scaffold generation).
 
 ### Output
 YAML flow files in `--output-dir` (default `./flows/`). Each file is a v2 flow ready for the recording pipeline.
@@ -97,17 +102,22 @@ echo '{"type":"step.start","step_id":"'$STEP_ID'"}' | \
   flow-walker record stream --run-id $RUN_ID --run-dir $RUN_DIR --json
 
 # 2b. Execute action with agent-flutter
-agent-flutter snapshot --json  # get current screen state
+SNAP=$(agent-flutter snapshot --json)  # get current screen state
 agent-flutter press @5 --json  # tap the element
-# Stream the action event
-echo '{"type":"action","step_id":"'$STEP_ID'","action":"tap","ref":"@5"}' | \
+# Stream the action event — include element details for snapshot replay
+# Extract element info from the snapshot for richer action events:
+#   element_ref, element_text, element_type, element_bounds (enables fast-tap replay)
+echo '{"type":"action","step_id":"'$STEP_ID'","action":"tap","ref":"@5",
+  "element_ref":"e5","element_text":"Login","element_type":"button",
+  "element_bounds":{"x":100,"y":200,"width":80,"height":40}}' | \
   flow-walker record stream --run-id $RUN_ID --run-dir $RUN_DIR --json
 
 # 2c. Capture screenshot (for steps with judge or evidence)
 agent-flutter snapshot --json > /tmp/snap.json
-# Save screenshot as WebP in run dir
-adb exec-out screencap -p > /tmp/raw.png && \
-  cwebp -q 70 -resize 270 600 /tmp/raw.png -o $RUN_DIR/step-$STEP_ID.webp
+# Save screenshot as WebP in run dir (via agent-flutter, not direct ADB)
+agent-flutter screenshot --output $RUN_DIR/step-$STEP_ID.webp --json 2>/dev/null || \
+  (adb exec-out screencap -p > /tmp/raw.png && \
+   cwebp -q 70 -resize 270 600 /tmp/raw.png -o $RUN_DIR/step-$STEP_ID.webp)
 # Stream artifact event
 echo '{"type":"artifact","step_id":"'$STEP_ID'","path":"step-'$STEP_ID'.webp"}' | \
   flow-walker record stream --run-id $RUN_ID --run-dir $RUN_DIR --json
@@ -131,7 +141,7 @@ echo '{"type":"step.end","step_id":"'$STEP_ID'"}' | \
 
 ```bash
 echo '{"type":"step.start","step_id":"S1"}
-{"type":"action","step_id":"S1","action":"tap","ref":"@5"}
+{"type":"action","step_id":"S1","action":"tap","ref":"@5","element_ref":"e5","element_text":"Home","element_type":"button","element_bounds":{"x":10,"y":500,"width":100,"height":40}}
 {"type":"artifact","step_id":"S1","path":"step-S1.webp"}
 {"type":"assert","step_id":"S1","milestone":"home-visible","passed":true}
 {"type":"agent-review","step_id":"S1","prompt_idx":0,"verdict":"pass","reason":"Home visible"}
@@ -199,9 +209,13 @@ The `htmlUrl` is the shareable report link.
 After a successful `record finish`, a snapshot is automatically saved next to the flow YAML (`<flow>.snapshot.json`). On the next `record init`, the snapshot is loaded automatically and returned as a replay plan.
 
 ```bash
-# Init returns replay plan with cached coordinates
+# Init returns replay plan with cached step data
 INIT=$(flow-walker record init --flow flows/login.yaml --no-video --json)
-# => {"id":"...","dir":"...","replay":{"mode":"replay","steps":{"S1":{"center":{"x":540,"y":960},...},...},"verifySteps":["S1","S3"]}}
+# => {"id":"...","dir":"...","replay":{"mode":"replay","valid":true,
+#     "steps":{"S1":{"kind":"action","command":"press","ref":"e5","text":"Login",
+#       "type":"button","bounds":{"x":100,"y":200,"width":80,"height":40},
+#       "center":{"x":140,"y":220},"waitAfterMs":500,"durationMs":1500},...},
+#     "verifySteps":["S1","S3"]}}
 ```
 
 ### Replay logic
@@ -212,15 +226,27 @@ if replay.mode == "replay":
     if step.id in replay.verifySteps:
       # Full verification: snapshot screen, check elements, run assertions
       agent-flutter snapshot --json
-      agent-flutter press @ref --json  # or use replay.steps[id].center coordinates
+      agent-flutter press @ref --json
+    else if replay.steps[id].center exists:
+      # Fast path: tap cached coordinates directly (x y as positional args)
+      agent-flutter press replay.steps[id].center.x replay.steps[id].center.y --json
     else:
-      # Fast path: tap cached coordinates directly
-      agent-flutter press --coordinate replay.steps[id].center.x,replay.steps[id].center.y --json
+      # No coordinates cached — use text/type to re-discover element
+      agent-flutter snapshot --json  # find element by replay.steps[id].text
+      agent-flutter press @ref --json
     stream events as normal (step.start, action, step.end)
 else:
   # No snapshot or flow changed — full exploration mode
   execute all steps with full UI discovery
 ```
+
+**Important:** Center coordinates are only available in snapshots when action events include `element_bounds` (see UC2 Step 2b). Without bounds, replay falls back to text-based element re-discovery, which is slower but still works.
+
+To enable fast-tap replay, always include these fields in action events:
+- `element_ref` — element reference (e.g., "e5")
+- `element_text` — visible text on the element
+- `element_type` — element type (e.g., "button", "InkWell")
+- `element_bounds` — `{"x":100,"y":200,"width":80,"height":40}` from agent-flutter snapshot
 
 ### Manual snapshot management
 
@@ -311,8 +337,8 @@ Both tiers feed into the step outcome and overall result. If both pass → PASS.
 | Type | Scope | Required fields | When to stream |
 |------|-------|----------------|---------------|
 | `step.start` | step | `step_id` | Before executing each step |
-| `action` | step | `step_id`, `action` | After each agent-flutter command |
-| `assert` | step | `step_id`, `milestone` or `kind`, `passed` | After checking expect conditions |
+| `action` | step | `step_id`, `action` + optional: `element_ref`, `element_text`, `element_type`, `element_bounds` | After each agent-flutter command |
+| `assert` | step | `step_id`, `milestone` or `kind`, `passed` (boolean: true/false) | After checking expect conditions |
 | `artifact` | step | `step_id`, `path` | After saving screenshot/file |
 | `agent-review` | step | `step_id`, `prompt_idx`, `verdict`, `reason` | After evaluating judge prompt |
 | `step.end` | step | `step_id` | After completing each step |
@@ -322,13 +348,15 @@ Both tiers feed into the step outcome and overall result. If both pass → PASS.
 
 ## Common Mistakes
 
-1. **Forgetting verify before report** — `report` will reject non-v2 data. Always run `verify` first.
+1. **Running `walk` without connection flags** — `flow-walker walk --json` will error. You must provide `--skip-connect` (after `agent-flutter connect`), `--app-uri`, or `--bundle-id`.
 2. **Not streaming assert events** — If the flow has `expect` fields, you MUST stream matching `assert` events or verify will show `no_evidence`.
 3. **Not streaming agent-review events** — If the flow has `judge` fields, you MUST stream `agent-review` events or prompts stay `pending` and result is `unverified`.
 4. **Missing screenshots for judge steps** — Judge prompts expect a screenshot. Save it as `step-{step_id}.webp` in the run directory and stream an `artifact` event.
 5. **Omitting --json** — Without `--json`, output is human-readable text that's hard to parse. Always use `--json`.
 6. **Skipping recipe** — `record init` returns a recipe. Read it. It tells you exactly which events each step needs.
 7. **Not checking warnings** — `record finish` returns warnings for missing events. Fix them before verify.
+8. **Forgetting verify before report** — `report` will reject non-v2 data. Always run `verify` first.
+9. **Missing element_bounds in action events** — Without `element_bounds`, snapshots won't have center coordinates, so replay falls back to slow text-based re-discovery instead of fast coordinate taps.
 
 ---
 
