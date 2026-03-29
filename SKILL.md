@@ -114,10 +114,8 @@ echo '{"type":"action","step_id":"'$STEP_ID'","action":"tap","ref":"@5",
 
 # 2c. Capture screenshot (for steps with judge or evidence)
 agent-flutter snapshot --json > /tmp/snap.json
-# Save screenshot as WebP in run dir (via agent-flutter, not direct ADB)
-agent-flutter screenshot --output $RUN_DIR/step-$STEP_ID.webp --json 2>/dev/null || \
-  (adb exec-out screencap -p > /tmp/raw.png && \
-   cwebp -q 70 -resize 270 600 /tmp/raw.png -o $RUN_DIR/step-$STEP_ID.webp)
+# Save screenshot as WebP in run dir
+agent-flutter screenshot $RUN_DIR/step-$STEP_ID.webp
 # Stream artifact event
 echo '{"type":"artifact","step_id":"'$STEP_ID'","path":"step-'$STEP_ID'.webp"}' | \
   flow-walker record stream --run-id $RUN_ID --run-dir $RUN_DIR --json
