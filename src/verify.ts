@@ -176,6 +176,15 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
       : agentPrompts.some(p => p.status === 'pending') ? 'pending'
       : 'pass';
 
+    // Incorporate tier results into step outcome
+    if (autoResult === 'fail' || agentResult === 'fail') {
+      outcome = 'fail';
+    } else if (endEvent && outcome === 'fail') {
+      // Only override when step.end had NO outcome/status field (defaulted to 'fail')
+      const raw = endEvent.outcome ?? endEvent.status;
+      if (raw === undefined || raw === null || raw === '') { outcome = 'pass'; }
+    }
+
     if (mode === 'strict' && outcome === 'skipped') { issues.push(`Step ${step.id}: skipped (not allowed in strict mode)`); outcome = 'fail'; }
     if (outcome === 'fail') {
       const summary = endEvent ? (endEvent.summary as string || '') : '';

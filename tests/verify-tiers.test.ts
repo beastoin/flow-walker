@@ -254,6 +254,62 @@ describe('two-tier verification', () => {
     assert.equal(result.steps[0].agent.prompts[0].status, 'fail');
   });
 
+  it('step outcome derives from tiers when step.end has no explicit outcome', () => {
+    const flow: FlowV2 = {
+      version: 2, name: 'no-outcome-field',
+      steps: [{
+        id: 'S1', do: 'Open home', claim: 'Home visible',
+        expect: [{ kind: 'screen-match', milestone: 'home' }],
+        judge: [{ prompt: 'Is home visible?', screenshot: 'step-S1' }],
+      }],
+    };
+    writeFileSync(join(tmpDir, 'events.jsonl'), [
+      JSON.stringify({ type: 'step.start', step_id: 'S1' }),
+      JSON.stringify({ type: 'action', step_id: 'S1', action: 'tap' }),
+      JSON.stringify({ type: 'artifact', step_id: 'S1', path: 'step-S1.webp' }),
+      JSON.stringify({ type: 'assert', step_id: 'S1', milestone: 'home', passed: true }),
+      JSON.stringify({ type: 'agent-review', step_id: 'S1', prompt_idx: 0, verdict: 'pass', reason: 'Home visible' }),
+      JSON.stringify({ type: 'step.end', step_id: 'S1' }), // NO outcome field
+    ].join('\n'));
+    const result = verifyRun({ flow, runDir: tmpDir, mode: 'balanced' });
+    assert.equal(result.steps[0].outcome, 'pass', 'step outcome should be pass when tiers pass');
+    assert.equal(result.steps[0].automated.result, 'pass');
+    assert.equal(result.steps[0].agent.result, 'pass');
+    assert.equal(result.result, 'pass', 'overall result should be pass');
+  });
+
+  it('step outcome stays fail when step.end explicitly says fail', () => {
+    const flow: FlowV2 = {
+      version: 2, name: 'explicit-fail',
+      steps: [{
+        id: 'S1', do: 'Open home',
+        expect: [{ kind: 'screen-match', milestone: 'home' }],
+      }],
+    };
+    writeFileSync(join(tmpDir, 'events.jsonl'), [
+      JSON.stringify({ type: 'assert', step_id: 'S1', milestone: 'home', passed: true }),
+      JSON.stringify({ type: 'step.end', step_id: 'S1', outcome: 'fail' }), // EXPLICIT fail
+    ].join('\n'));
+    const result = verifyRun({ flow, runDir: tmpDir, mode: 'balanced' });
+    assert.equal(result.steps[0].outcome, 'fail', 'explicit fail from step.end should be respected');
+  });
+
+  it('tier failure overrides step.end pass', () => {
+    const flow: FlowV2 = {
+      version: 2, name: 'tier-override',
+      steps: [{
+        id: 'S1', do: 'Open home',
+        judge: [{ prompt: 'Is home visible?' }],
+      }],
+    };
+    writeFileSync(join(tmpDir, 'events.jsonl'), [
+      JSON.stringify({ type: 'agent-review', step_id: 'S1', prompt_idx: 0, verdict: 'fail', reason: 'Error shown' }),
+      JSON.stringify({ type: 'step.end', step_id: 'S1', outcome: 'pass' }),
+    ].join('\n'));
+    const result = verifyRun({ flow, runDir: tmpDir, mode: 'balanced' });
+    assert.equal(result.steps[0].outcome, 'fail', 'tier failure should override step.end pass');
+  });
+
   it('agent-review resolves unverified to pass when automated also passes', () => {
     const flow: FlowV2 = {
       version: 2, name: 'full-verify',
