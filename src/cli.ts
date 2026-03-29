@@ -15,6 +15,8 @@ import { generateReportV2 } from './reporter.ts';
 import { FlowWalkerError, ErrorCodes, formatError } from './errors.ts';
 import { validateFlowPath, validateOutputDir, validateUri, validateBundleId } from './validate.ts';
 import { COMMAND_SCHEMAS, SCHEMA_VERSION, getCommandSchema, getSchemaEnvelope } from './command-schema.ts';
+import { createRequire } from 'node:module';
+const PKG_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 import { pushReport, getRunData } from './push.ts';
 const DEFAULT_BLOCKLIST = 'delete,sign out,remove,reset,unpair,logout,clear all';
 function resolveJsonMode(flags: Record<string, unknown>): boolean {
@@ -69,7 +71,7 @@ async function main(): Promise<void> {
   const agentTypeFlag = values['agent'] as string | undefined;
   const agentType: AgentType = agentTypeFlag === 'swift' || agentTypeFlag === 'flutter' ? agentTypeFlag : (process.env.FLOW_WALKER_AGENT as AgentType | undefined) ?? detectAgentType(agentPath);
   const dryRun = (values['dry-run'] as boolean) || process.env.FLOW_WALKER_DRY_RUN === '1';
-  if (values.version) { console.log(json ? JSON.stringify({ version: SCHEMA_VERSION }) : `flow-walker ${SCHEMA_VERSION}`); process.exit(0); }
+  if (values.version) { console.log(json ? JSON.stringify({ version: PKG_VERSION, schemaVersion: SCHEMA_VERSION }) : `flow-walker ${PKG_VERSION} (schema ${SCHEMA_VERSION})`); process.exit(0); }
   if (values.help || !subcommand) {
     if (json && subcommand) { const schema = getCommandSchema(subcommand); if (schema) { console.log(JSON.stringify(schema)); process.exit(0); } }
     printUsage(); process.exit(subcommand ? 0 : 1);

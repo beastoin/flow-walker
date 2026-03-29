@@ -47,6 +47,7 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
   const flow: Partial<FlowV2> = { steps: [] };
   let currentStep: Partial<FlowV2Step> & Record<string, unknown> = {};
   let inSteps = false, inCovers = false, inPreconditions = false, inExpect = false, inEvidence = false, inAnchors = false, inDefaults = false, inFlowEvidence = false, inJudge = false;
+  let stepIndent = -1; // indentation of step-level `- id:` lines
   for (const rawLine of lines) {
     const line = rawLine.trimEnd();
     if (line.startsWith('#') || line.trim() === '') continue;
@@ -65,6 +66,7 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
       continue;
     }
     const t = line.trim();
+    const lineIndent = line.length - line.trimStart().length;
     if (inDefaults && !inSteps) {
       if (t.startsWith('timeout_ms:')) flow.defaults!.timeout_ms = parseInt(pv(t.slice(11)), 10);
       else if (t.startsWith('retries:')) flow.defaults!.retries = parseInt(pv(t.slice(8)), 10);
@@ -78,9 +80,11 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
     if (inCovers && t.startsWith('- ')) { flow.covers!.push(pv(t.slice(2))); continue; }
     if (inPreconditions && t.startsWith('- ')) { flow.preconditions!.push(pv(t.slice(2))); continue; }
     if (!inSteps) continue;
-    if (t.startsWith('- id:') && !inJudge) {
+    if (t.startsWith('- id:') && (!inJudge || stepIndent === -1 || lineIndent <= stepIndent)) {
       if (currentStep.id) flow.steps!.push(currentStep as unknown as FlowV2Step);
-      currentStep = { id: pv(t.slice(5)) }; inExpect = false; inEvidence = false; inAnchors = false; inJudge = false; continue;
+      currentStep = { id: pv(t.slice(5)) }; inExpect = false; inEvidence = false; inAnchors = false; inJudge = false;
+      if (stepIndent === -1) stepIndent = lineIndent;
+      continue;
     }
     if (!currentStep.id) continue;
     if (t.startsWith('name:')) currentStep.name = pv(t.slice(5));
