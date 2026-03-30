@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildHtmlV2 } from '../src/reporter.ts';
+import type { LogEntry } from '../src/reporter.ts';
 import type { VerifyResult } from '../src/verify.ts';
 
 // Helper to create minimal VerifyResult with defaults for new fields
@@ -249,5 +250,123 @@ describe('buildHtmlV2', () => {
     });
     const html = buildHtmlV2(data);
     assert.ok(html.includes('AUDIT'), 'audit mode badge should say AUDIT');
+  });
+
+  it('renders log timeline from note events', () => {
+    const data = makeResult({
+      flow: 'sync-test', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'sync', do: 'Trigger sync', outcome: 'pass' as const,
+        events: [], expectations: [],
+      }],
+      issues: [],
+    });
+    const timeline: LogEntry[] = [
+      { ts: '2026-03-30T10:00:01.200Z', source: 'app', message: 'SyncProvider: POST /v2/sync-local-files', stepId: 'S1' },
+      { ts: '2026-03-30T10:00:01.350Z', source: 'backend', message: 'POST /v2/sync-local-files 202 Accepted', stepId: 'S1' },
+      { ts: '2026-03-30T10:00:02.100Z', source: 'backend', message: 'VAD: 2 segments detected', stepId: 'S1' },
+      { ts: '2026-03-30T10:00:05.000Z', source: 'backend', message: 'Deepgram transcription complete', stepId: 'S1' },
+      { ts: '2026-03-30T10:00:06.200Z', source: 'app', message: 'SyncProvider: response received', stepId: 'S1' },
+    ];
+    const html = buildHtmlV2(data, new Map(), '', 0, new Map(), timeline);
+    assert.ok(html.includes('Log Timeline'), 'should have Log Timeline section');
+    assert.ok(html.includes('SyncProvider: POST /v2/sync-local-files'), 'should show app log');
+    assert.ok(html.includes('202 Accepted'), 'should show backend log');
+    assert.ok(html.includes('VAD: 2 segments'), 'should show VAD log');
+    assert.ok(html.includes('log-src-app'), 'should have app source CSS class');
+    assert.ok(html.includes('log-src-backend'), 'should have backend source CSS class');
+    assert.ok(html.includes('+0.00s'), 'should show relative timestamp for first entry');
+    assert.ok(html.includes('+0.15s'), 'should show relative timestamp for second entry');
+  });
+
+  it('omits log timeline when no note events have source', () => {
+    const data = makeResult({
+      flow: 'no-logs', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'x', do: 'x', outcome: 'pass' as const,
+        events: [], expectations: [],
+      }],
+      issues: [],
+    });
+    const html = buildHtmlV2(data, new Map(), '', 0, new Map(), []);
+    assert.ok(!html.includes('Log Timeline'), 'should NOT have Log Timeline when empty');
+  });
+
+  it('renders error-level log entries with error styling', () => {
+    const data = makeResult({
+      flow: 'error-log', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'x', do: 'x', outcome: 'pass' as const,
+        events: [], expectations: [],
+      }],
+      issues: [],
+    });
+    const timeline: LogEntry[] = [
+      { ts: '2026-03-30T10:00:00Z', source: 'backend', message: 'Connection refused', level: 'error' },
+      { ts: '2026-03-30T10:00:01Z', source: 'app', message: 'Retry scheduled', level: 'warn' },
+    ];
+    const html = buildHtmlV2(data, new Map(), '', 0, new Map(), timeline);
+    assert.ok(html.includes('log-error'), 'should have error CSS class');
+    assert.ok(html.includes('log-warn'), 'should have warn CSS class');
+    assert.ok(html.includes('Connection refused'));
+  });
+
+  it('renders citations with clickable links to raw log lines', () => {
+    const data = makeResult({
+      flow: 'cite-test', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'x', do: 'x', outcome: 'pass' as const,
+        events: [], expectations: [],
+      }],
+      issues: [],
+    });
+    const timeline: LogEntry[] = [
+      { ts: '2026-03-30T10:00:00Z', source: 'backend', message: 'POST /v2/sync 202', cite: 'backend.log:42' },
+      { ts: '2026-03-30T10:00:01Z', source: 'app', message: 'State changed', cite: 'app.log:15' },
+    ];
+    const html = buildHtmlV2(data, new Map(), '', 0, new Map(), timeline);
+    assert.ok(html.includes('backend.log:42'), 'should show citation text');
+    assert.ok(html.includes('app.log:15'), 'should show app citation');
+    assert.ok(html.includes('backend-log-L42'), 'should have anchor link');
+    assert.ok(html.includes('log-cite'), 'should have cite CSS class');
+  });
+
+  it('renders raw log sections with line numbers and anchors', () => {
+    const data = makeResult({
+      flow: 'rawlog-test', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'x', do: 'x', outcome: 'pass' as const,
+        events: [], expectations: [],
+      }],
+      issues: [],
+    });
+    const rawLogs = new Map<string, string>();
+    rawLogs.set('backend.log', '2026-03-30T10:00:01Z POST /v2/sync 202\n2026-03-30T10:00:02Z VAD processing\n2026-03-30T10:00:03Z Job complete');
+    const html = buildHtmlV2(data, new Map(), '', 0, new Map(), [], rawLogs);
+    assert.ok(html.includes('Raw Logs'), 'should have Raw Logs section');
+    assert.ok(html.includes('backend.log'), 'should show filename');
+    assert.ok(html.includes('backend-log-L1'), 'should have line anchor for L1');
+    assert.ok(html.includes('backend-log-L2'), 'should have line anchor for L2');
+    assert.ok(html.includes('POST /v2/sync 202'), 'should show log content');
+    assert.ok(html.includes('3 lines'), 'should show line count');
+  });
+
+  it('shows source summary in timeline header', () => {
+    const data = makeResult({
+      flow: 'summary-test', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'x', do: 'x', outcome: 'pass' as const,
+        events: [], expectations: [],
+      }],
+      issues: [],
+    });
+    const timeline: LogEntry[] = [
+      { ts: '2026-03-30T10:00:00Z', source: 'app', message: 'msg1' },
+      { ts: '2026-03-30T10:00:01Z', source: 'backend', message: 'msg2' },
+      { ts: '2026-03-30T10:00:02Z', source: 'app', message: 'msg3' },
+    ];
+    const html = buildHtmlV2(data, new Map(), '', 0, new Map(), timeline);
+    assert.ok(html.includes('3 entries'), 'should show entry count');
+    assert.ok(html.includes('timeline-meta'), 'should have meta section');
   });
 });

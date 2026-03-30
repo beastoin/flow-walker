@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FlowV2 } from './types.ts';
+import { findRunFile } from './run-files.ts';
 
 export interface VerifyOptions {
   flow: FlowV2; runDir: string; mode: 'strict' | 'balanced' | 'audit';
@@ -55,7 +56,7 @@ function normalizeOutcome(raw: string): 'pass' | 'fail' | 'skipped' | 'recovered
 
 export function verifyRun(opts: VerifyOptions): VerifyResult {
   const { flow, runDir, mode } = opts;
-  const evPath = opts.eventsPath || join(runDir, 'events.jsonl');
+  const evPath = opts.eventsPath || findRunFile(runDir, 'events.jsonl');
   const events: Record<string, unknown>[] = [];
   if (existsSync(evPath)) {
     const lines = readFileSync(evPath, 'utf-8').trim().split('\n').filter(Boolean);
@@ -213,14 +214,28 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
   else if (hasChecks && allAutoNoEvidence && allAgentPending) { result = 'unverified'; }
   else { result = 'pass'; }
   const verifyResult: VerifyResult = { schema: 'flow-walker.run.v3', flow: flow.name, mode, result, automatedResult, agentResult: overallAgent, steps, issues };
-  const outputPath = opts.outputPath || join(runDir, 'run.json');
+  // Timestamp the output filename
+  let outputPath = opts.outputPath;
+  if (!outputPath) {
+    const tsNow = new Date().toISOString().replace(/[-:]/g, '').replace('.', '');
+    outputPath = join(runDir, `${tsNow}-run.json`);
+  }
   writeFileSync(outputPath, JSON.stringify(verifyResult));
+  // Update meta with run.json filename
+  try {
+    const metaPath = join(runDir, 'run.meta.json');
+    if (existsSync(metaPath)) {
+      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+      meta.runJsonFile = outputPath.startsWith(runDir) ? outputPath.slice(runDir.length + 1) : outputPath;
+      writeFileSync(metaPath, JSON.stringify(meta));
+    }
+  } catch { /* best-effort */ }
   return verifyResult;
 }
 
 /** Re-check tier 1 automated checks from stored run data (no device needed) */
 export function recheckRun(opts: { flow: FlowV2; runDir: string }): VerifyResult {
-  const runJsonPath = join(opts.runDir, 'run.json');
+  const runJsonPath = findRunFile(opts.runDir, 'run.json');
   if (!existsSync(runJsonPath)) {
     return verifyRun({ flow: opts.flow, runDir: opts.runDir, mode: 'audit', recheck: true });
   }
@@ -246,7 +261,7 @@ export function recheckRun(opts: { flow: FlowV2; runDir: string }): VerifyResult
 
 /** Generate structured agent verification prompts for tier 2 checks */
 export function generateAgentPrompts(opts: { flow: FlowV2; runDir: string }): Record<string, unknown>[] {
-  const runJsonPath = join(opts.runDir, 'run.json');
+  const runJsonPath = findRunFile(opts.runDir, 'run.json');
   const result: Record<string, unknown>[] = [];
   let steps: VerifyStepResult[] = [];
   if (existsSync(runJsonPath)) {

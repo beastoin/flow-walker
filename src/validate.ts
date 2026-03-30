@@ -3,6 +3,7 @@
 
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { findRunFile } from './run-files.ts';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
 
 /** Reject strings containing ASCII control characters (except \n and \t) */
@@ -105,7 +106,7 @@ export function validateRunDir(dir: string): void {
     );
   }
 
-  if (!existsSync(`${dir}/run.json`)) {
+  if (!existsSync(findRunFile(dir, 'run.json'))) {
     throw new FlowWalkerError(
       ErrorCodes.FILE_NOT_FOUND,
       `run.json not found in ${dir}`,

@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { verifyRun, recheckRun, generateAgentPrompts } from '../src/verify.ts';
@@ -129,7 +129,8 @@ describe('two-tier verification', () => {
       JSON.stringify({ type: 'step.end', step_id: 'S2', outcome: 'pass' }),
     ].join('\n'));
     verifyRun({ flow: basicFlow, runDir: tmpDir, mode: 'audit' });
-    assert.ok(existsSync(join(tmpDir, 'run.json')));
+    const files = readdirSync(tmpDir);
+    assert.ok(files.some(f => f.endsWith('-run.json') || f === 'run.json'), 'should write run.json');
 
     // Recheck from stored data
     const rechecked = recheckRun({ flow: basicFlow, runDir: tmpDir });

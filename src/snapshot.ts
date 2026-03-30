@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
+import { findRunFile } from './run-files.ts';
 
 // ── Types ──
 
@@ -76,8 +77,8 @@ export function saveSnapshot(opts: SaveSnapshotOptions): FlowSnapshot {
   const nameMatch = yamlContent.match(/^name:\s*(.+)$/m);
   const flowName = nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, '') : 'unknown';
 
-  // Read events
-  const eventsPath = join(opts.runDir, 'events.jsonl');
+  // Read events (supports timestamped filenames)
+  const eventsPath = findRunFile(opts.runDir, 'events.jsonl');
   const events: Record<string, unknown>[] = [];
   if (existsSync(eventsPath)) {
     const lines = readFileSync(eventsPath, 'utf-8').trim().split('\n').filter(Boolean);

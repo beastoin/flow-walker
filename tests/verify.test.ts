@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { verifyRun } from '../src/verify.ts';
@@ -68,10 +68,11 @@ describe('verifyRun audit', () => {
   });
 });
 describe('verifyRun output', () => {
-  it('writes run.json', () => {
+  it('writes timestamped run.json', () => {
     const d = makeRunDir(['{"type":"step.start","step_id":"S1","seq":0}','{"type":"step.end","step_id":"S1","status":"pass","seq":1}']);
     verifyRun({ flow, runDir: d, mode: 'balanced' });
-    assert.ok(existsSync(join(d, 'run.json')));
+    const files = readdirSync(d);
+    assert.ok(files.some(f => f.endsWith('-run.json') || f === 'run.json'), `should write run.json: ${files}`);
   });
   it('includes flow name and mode', () => {
     const d = makeRunDir([]);

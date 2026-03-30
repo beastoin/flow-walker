@@ -15,6 +15,7 @@ import { generateReportV2 } from './reporter.ts';
 import { FlowWalkerError, ErrorCodes, formatError } from './errors.ts';
 import { validateFlowPath, validateOutputDir, validateUri, validateBundleId, validateRunDir } from './validate.ts';
 import { COMMAND_SCHEMAS, SCHEMA_VERSION, getCommandSchema, getSchemaEnvelope } from './command-schema.ts';
+import { findRunFile } from './run-files.ts';
 import { createRequire } from 'node:module';
 const PKG_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 import { pushReport, getRunData } from './push.ts';
@@ -223,7 +224,7 @@ async function handleReport(values: Record<string, unknown>, positionals: string
   const runDir = positionals[1];
   if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required');
   validateOutputDir(runDir);
-  const runJsonPath = `${runDir}/run.json`;
+  const runJsonPath = findRunFile(runDir, 'run.json');
   if (!existsSync(runJsonPath)) throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${runDir}`, 'Run "flow-walker verify <flow.yaml> --run-dir <dir>" first to generate run.json');
   const raw = JSON.parse(readFileSync(runJsonPath, 'utf-8'));
   validateV2RunJson(raw, runDir);

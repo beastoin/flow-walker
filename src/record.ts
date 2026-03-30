@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync, unlinkSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
 import { validateEvent } from './event-schema.ts';
@@ -85,6 +85,23 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
   return { id, dir: runDir, video: videoStarted, replay, recipe };
 }
 
+/** Convert ISO timestamp to compact sortable prefix: 2026-03-29T04:12:00.123Z → 20260329T041200123Z */
+export function compactTs(iso: string): string {
+  return iso.replace(/[-:]/g, '').replace('.', '');
+}
+
+/** Rename a file in runDir to include timestamp prefix. Returns new filename or null if file missing. */
+function timestampRename(runDir: string, filePath: string, ts: string, stepId: string): string | null {
+  const base = basename(filePath);
+  const src = join(runDir, base);
+  if (!existsSync(src)) return null;
+  const newName = `${compactTs(ts)}-${stepId}-${base}`;
+  try {
+    renameSync(src, join(runDir, newName));
+    return newName;
+  } catch { return null; }
+}
+
 export function recordStream(ctx: { runId: string; runDir: string }, lines: string[]): number {
   const runDir = findDir(ctx.runDir, ctx.runId);
   const eventsPath = join(runDir, 'events.jsonl');
@@ -98,6 +115,16 @@ export function recordStream(ctx: { runId: string; runDir: string }, lines: stri
     if (!result.valid) continue;
     parsed.seq = seq++;
     parsed.ts = parsed.ts || new Date().toISOString();
+    // Timestamp-rename artifact and screenshot files for chronological synthesis
+    const stepId = (parsed.step_id as string) || 'misc';
+    if (parsed.type === 'artifact' && typeof parsed.path === 'string') {
+      const renamed = timestampRename(runDir, parsed.path, parsed.ts as string, stepId);
+      if (renamed) parsed.path = renamed;
+    }
+    if (typeof parsed.screenshot === 'string') {
+      const renamed = timestampRename(runDir, parsed.screenshot, parsed.ts as string, stepId);
+      if (renamed) parsed.screenshot = renamed;
+    }
     appendFileSync(eventsPath, JSON.stringify(parsed) + '\n');
     count++;
   }
@@ -190,6 +217,26 @@ export function recordFinish(ctx: { runId: string; runDir: string; status: strin
   } catch { /* best-effort gap detection */ }
   if (warnings.length > 0) meta.warnings = warnings;
 
+  // Timestamp-rename ALL output files for chronological synthesis
+  const tsPrefix = compactTs(meta.startedAt as string);
+  // Video
+  if (meta.video && meta.startedAt) {
+    const newName = `${tsPrefix}-recording.mp4`;
+    try { renameSync(join(runDir, meta.video as string), join(runDir, newName)); meta.video = newName; } catch { /* keep original */ }
+  }
+  // Events log
+  const eventsFixed = join(runDir, 'events.jsonl');
+  if (existsSync(eventsFixed)) {
+    const newName = `${tsPrefix}-events.jsonl`;
+    try { renameSync(eventsFixed, join(runDir, newName)); meta.eventsFile = newName; } catch { /* keep original */ }
+  }
+  // Flow lock
+  const flowLockFixed = join(runDir, 'flow.lock.yaml');
+  if (existsSync(flowLockFixed)) {
+    const newName = `${tsPrefix}-flow.lock.yaml`;
+    try { renameSync(flowLockFixed, join(runDir, newName)); meta.flowLockFile = newName; } catch { /* keep original */ }
+  }
+
   writeFileSync(metaPath, JSON.stringify(meta));
 
   // Auto-save snapshot on successful run
@@ -209,11 +256,11 @@ export function generateRecipe(flow: FlowV2): StepRecipe[] {
   return flow.steps.map(step => {
     const events: string[] = ['step.start'];
     events.push('action');
-    // If step has judge (needs screenshot), include artifact
+    // If step has judge (needs screenshot), include artifact (auto-timestamped by record stream)
     if (step.judge && step.judge.length > 0) {
-      events.push(`artifact (screenshot: step-${step.id}.webp)`);
+      events.push('artifact (screenshot — auto-timestamped)');
     } else if (step.evidence && step.evidence.length > 0) {
-      events.push(`artifact (screenshot: step-${step.id}.webp)`);
+      events.push('artifact (screenshot — auto-timestamped)');
     }
     // If step has expect, include assert events
     if (step.expect) {

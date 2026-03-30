@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { recordInit, recordStream, recordFinish, generateRecipe } from '../src/record.ts';
+import { recordInit, recordStream, recordFinish, generateRecipe, compactTs } from '../src/record.ts';
 import type { FlowV2 } from '../src/types.ts';
 let tmpDir: string;
 let flowFile: string;
@@ -85,6 +85,71 @@ describe('recordFinish', () => {
   });
 });
 
+describe('compactTs', () => {
+  it('converts ISO timestamp to compact form', () => {
+    assert.equal(compactTs('2026-03-29T04:12:00.123Z'), '20260329T041200123Z');
+    assert.equal(compactTs('2026-01-01T00:00:00Z'), '20260101T000000Z');
+    assert.equal(compactTs('2026-12-31T23:59:59.999Z'), '20261231T235959999Z');
+  });
+});
+
+describe('timestamp-based artifact naming', () => {
+  it('renames artifact files with timestamp prefix', () => {
+    setup();
+    const r = recordInit({ flowPath: flowFile, outputDir: tmpDir });
+    writeFileSync(join(r.dir, 'my-screenshot.webp'), 'fake-image-data');
+    recordStream({ runId: r.id, runDir: tmpDir }, [
+      '{"type":"step.start","step_id":"S1"}',
+      '{"type":"artifact","step_id":"S1","path":"my-screenshot.webp"}',
+    ]);
+    const lines = readFileSync(join(r.dir, 'events.jsonl'), 'utf-8').trim().split('\n');
+    const artifactEvent = JSON.parse(lines.find(l => l.includes('"artifact"'))!);
+    assert.ok(artifactEvent.path.includes('-S1-my-screenshot.webp'), `path should be timestamped: ${artifactEvent.path}`);
+    assert.ok(artifactEvent.path.match(/^\d{8}T\d+Z-/), `path should start with compact timestamp: ${artifactEvent.path}`);
+    assert.ok(!existsSync(join(r.dir, 'my-screenshot.webp')), 'original file should be renamed');
+    assert.ok(existsSync(join(r.dir, artifactEvent.path)), 'timestamped file should exist');
+  });
+
+  it('renames screenshot field on events', () => {
+    setup();
+    const r = recordInit({ flowPath: flowFile, outputDir: tmpDir });
+    writeFileSync(join(r.dir, 'action-shot.webp'), 'fake-data');
+    recordStream({ runId: r.id, runDir: tmpDir }, [
+      '{"type":"action","step_id":"S1","screenshot":"action-shot.webp"}',
+    ]);
+    const lines = readFileSync(join(r.dir, 'events.jsonl'), 'utf-8').trim().split('\n');
+    const actionEvent = JSON.parse(lines[0]);
+    assert.ok(actionEvent.screenshot.includes('-S1-action-shot.webp'));
+    assert.ok(existsSync(join(r.dir, actionEvent.screenshot)));
+  });
+
+  it('leaves path unchanged when file does not exist', () => {
+    setup();
+    const r = recordInit({ flowPath: flowFile, outputDir: tmpDir });
+    recordStream({ runId: r.id, runDir: tmpDir }, [
+      '{"type":"artifact","step_id":"S1","path":"nonexistent.webp"}',
+    ]);
+    const lines = readFileSync(join(r.dir, 'events.jsonl'), 'utf-8').trim().split('\n');
+    const ev = JSON.parse(lines[0]);
+    assert.equal(ev.path, 'nonexistent.webp', 'path should be unchanged when file missing');
+  });
+
+  it('timestamps sort chronologically across steps', () => {
+    setup();
+    const r = recordInit({ flowPath: flowFile, outputDir: tmpDir });
+    writeFileSync(join(r.dir, 'first.webp'), 'data1');
+    writeFileSync(join(r.dir, 'second.webp'), 'data2');
+    recordStream({ runId: r.id, runDir: tmpDir }, [
+      '{"type":"artifact","step_id":"S1","path":"first.webp","ts":"2026-03-29T10:00:00.100Z"}',
+      '{"type":"artifact","step_id":"S1","path":"second.webp","ts":"2026-03-29T10:00:01.200Z"}',
+    ]);
+    const lines = readFileSync(join(r.dir, 'events.jsonl'), 'utf-8').trim().split('\n');
+    const ev1 = JSON.parse(lines[0]);
+    const ev2 = JSON.parse(lines[1]);
+    assert.ok(ev1.path < ev2.path, `${ev1.path} should sort before ${ev2.path}`);
+  });
+});
+
 describe('generateRecipe', () => {
   it('produces per-step event recipes', () => {
     const flow: FlowV2 = {
@@ -120,7 +185,7 @@ describe('generateRecipe', () => {
     assert.ok(assertEvent!.includes('Counter: 2'), 'assert should mention expected value');
   });
 
-  it('recipe includes artifact for judge steps', () => {
+  it('recipe includes artifact for judge steps (auto-timestamped)', () => {
     const flow: FlowV2 = {
       version: 2, name: 'recipe-judge',
       steps: [{
@@ -131,7 +196,7 @@ describe('generateRecipe', () => {
     const recipe = generateRecipe(flow);
     const artifactEvent = recipe[0].events.find(e => e.includes('artifact'));
     assert.ok(artifactEvent, 'recipe should include artifact for judge step');
-    assert.ok(artifactEvent!.includes('screenshot'));
+    assert.ok(artifactEvent!.includes('auto-timestamped'), 'recipe should indicate auto-timestamping');
   });
 
   it('recipe includes agent-review hints for judge steps', () => {

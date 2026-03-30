@@ -2,9 +2,12 @@ import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { createRequire } from 'node:module';
 import type { VerifyResult, VerifyStepResult, AutomatedCheck, AgentPrompt } from './verify.ts';
+import { parseLogFile, filterByTimeWindow } from './log-parser.ts';
+import { findRunFile } from './run-files.ts';
 const PKG_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
 export interface ReportOptions { noVideo?: boolean; output?: string; }
+export interface LogEntry { ts: string; source: string; message: string; stepId?: string; level?: string; cite?: string; }
 
 /** Try to load an image file into the screenshot map under one or more keys */
 function loadImage(runDir: string, filePath: string, screenshotData: Map<string, string>): boolean {
@@ -23,7 +26,8 @@ function loadImage(runDir: string, filePath: string, screenshotData: Map<string,
 }
 
 export function generateReportV2(runResult: VerifyResult, runDir: string, options: ReportOptions = {}): string {
-  const outputPath = options.output ?? join(runDir, 'report.html');
+  const tsNow = new Date().toISOString().replace(/[-:]/g, '').replace('.', '');
+  const outputPath = options.output ?? join(runDir, `${tsNow}-report.html`);
   const screenshotData: Map<string, string> = new Map();
   // Per-step screenshot mapping: step ID → filename
   const stepScreenshot: Map<string, string> = new Map();
@@ -90,9 +94,9 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
       }
     }
   } catch { /* directory scan failed — not critical */ }
-  // 3. Detect video
+  // 3. Detect video (supports timestamped names)
   let videoBase64 = '';
-  const videoPath = join(runDir, 'recording.mp4');
+  const videoPath = findRunFile(runDir, 'recording.mp4');
   if (existsSync(videoPath)) {
     try { videoBase64 = readFileSync(videoPath).toString('base64'); } catch { /* not available */ }
   }
@@ -103,12 +107,108 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
   if (timestamps.length >= 2) {
     durationMs = Math.max(...timestamps) - Math.min(...timestamps);
   }
-  const html = buildHtmlV2(runResult, screenshotData, videoBase64, durationMs, stepScreenshot);
+  // 5. Build log timeline — three sources merged and correlated with steps
+  const logTimeline: LogEntry[] = [];
+
+  // 5a. Build step time ranges for auto-correlation
+  const stepRanges: Array<{ id: string; start: number; end: number }> = [];
+  for (const step of runResult.steps) {
+    const evs = step.events as Array<Record<string, unknown>>;
+    const startEv = evs.find(e => e.type === 'step.start');
+    const endEv = evs.find(e => e.type === 'step.end');
+    const startMs = startEv?.ts ? new Date(startEv.ts as string).getTime() : 0;
+    const endMs = endEv?.ts ? new Date(endEv.ts as string).getTime() : Infinity;
+    if (startMs > 0) stepRanges.push({ id: step.id, start: startMs, end: endMs });
+  }
+  const findStepForTs = (tsMs: number): string | undefined => {
+    for (const r of stepRanges) { if (tsMs >= r.start && tsMs <= r.end) return r.id; }
+    return undefined;
+  };
+
+  // 5b. Read run time window from meta (filter log files to run duration)
+  let runStartIso: string | undefined;
+  let runEndIso: string | undefined;
+  try {
+    const metaPath = join(runDir, 'run.meta.json');
+    if (existsSync(metaPath)) {
+      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+      runStartIso = meta.startedAt;
+      runEndIso = meta.finishedAt;
+    }
+  } catch { /* not critical */ }
+
+  // 5c. Auto-discover and parse .log files from run directory
+  const rawLogs: Map<string, string> = new Map();
+  try {
+    const logFiles = readdirSync(runDir).filter(f => /\.log$/i.test(f)).sort();
+    for (const logFile of logFiles) {
+      try {
+        const content = readFileSync(join(runDir, logFile), 'utf-8');
+        rawLogs.set(logFile, content);
+        // Derive source name: strip timestamp prefix and extension
+        // e.g., "20260330T100001Z-S3-backend.log" → "backend"
+        // e.g., "backend.log" → "backend"
+        const sourceName = logFile.replace(/^\d{8}T\d+Z-\w+-/, '').replace(/\.log$/i, '');
+        let parsed = parseLogFile(content);
+        parsed = filterByTimeWindow(parsed, runStartIso, runEndIso);
+        for (const line of parsed) {
+          const tsMs = new Date(line.ts).getTime();
+          logTimeline.push({
+            ts: line.ts,
+            source: sourceName,
+            message: line.message,
+            stepId: findStepForTs(tsMs),
+            level: line.level,
+            cite: `${logFile}:${line.line}`,
+          });
+        }
+      } catch { /* skip unparseable log files */ }
+    }
+  } catch { /* directory scan failed */ }
+
+  // 5d. Collect note events with source field (manual annotations from agents)
+  for (const step of runResult.steps) {
+    for (const ev of step.events as Array<Record<string, unknown>>) {
+      if (ev.type === 'note' && typeof ev.source === 'string' && typeof ev.message === 'string') {
+        logTimeline.push({ ts: (ev.ts as string) || '', source: ev.source, message: ev.message, stepId: step.id, level: ev.level as string });
+      }
+    }
+  }
+  // Orphaned notes (no step_id) from events.jsonl
+  try {
+    const eventsPath = findRunFile(runDir, 'events.jsonl');
+    if (existsSync(eventsPath)) {
+      const lines = readFileSync(eventsPath, 'utf-8').trim().split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === 'note' && typeof ev.source === 'string' && !ev.step_id) {
+            logTimeline.push({ ts: ev.ts || '', source: ev.source, message: ev.message || '', level: ev.level });
+          }
+        } catch { /* skip */ }
+      }
+    }
+  } catch { /* not critical */ }
+
+  // 5e. Sort and cap at 1000 entries
+  logTimeline.sort((a, b) => a.ts.localeCompare(b.ts));
+  if (logTimeline.length > 1000) logTimeline.length = 1000;
+
+  const html = buildHtmlV2(runResult, screenshotData, videoBase64, durationMs, stepScreenshot, logTimeline, rawLogs);
   writeFileSync(outputPath, html);
+  // Store report filename in meta
+  try {
+    const metaPath = join(runDir, 'run.meta.json');
+    if (existsSync(metaPath)) {
+      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+      meta.reportFile = basename(outputPath);
+      writeFileSync(metaPath, JSON.stringify(meta));
+    }
+  } catch { /* best-effort */ }
   return outputPath;
 }
 
-export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> = new Map(), videoBase64: string = '', durationMs: number = 0, stepScreenshotMap: Map<string, string> = new Map()): string {
+export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> = new Map(), videoBase64: string = '', durationMs: number = 0, stepScreenshotMap: Map<string, string> = new Map(), logTimeline: LogEntry[] = [], rawLogs: Map<string, string> = new Map()): string {
   const passCount = run.steps.filter(s => s.outcome === 'pass').length;
   const failCount = run.steps.filter(s => s.outcome === 'fail').length;
   const skipCount = run.steps.filter(s => s.outcome === 'skipped').length;
@@ -178,6 +278,50 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
       ${renderAgentPrompts(s.agent?.prompts)}
       ${imgB64 ? `<img class="step-screenshot" src="data:${imgMime(imgKey)};base64,${imgB64}" alt="${escHtml(s.id)} screenshot" />` : ''}
     </div>`;
+  };
+
+  // Render log timeline with citations and raw log sections
+  const renderLogTimeline = (): string => {
+    if (logTimeline.length === 0 && rawLogs.size === 0) return '';
+    let html = '';
+    // Timeline table
+    if (logTimeline.length > 0) {
+      const baseTs = logTimeline[0].ts ? new Date(logTimeline[0].ts).getTime() : 0;
+      const rows = logTimeline.map(entry => {
+        const entryMs = entry.ts ? new Date(entry.ts).getTime() : 0;
+        const relMs = baseTs > 0 && entryMs > 0 ? entryMs - baseTs : 0;
+        const relStr = relMs >= 0 ? `+${(relMs / 1000).toFixed(2)}s` : '';
+        const levelCls = entry.level === 'error' ? 'log-error' : entry.level === 'warn' ? 'log-warn' : '';
+        // Citation: clickable link to raw log line if available
+        const citeHtml = entry.cite ? (() => {
+          const [file, lineNo] = entry.cite.split(':');
+          const anchor = `${file.replace(/[^a-zA-Z0-9]/g, '-')}-L${lineNo}`;
+          return `<td class="log-cite"><a href="#${anchor}">${escHtml(entry.cite)}</a></td>`;
+        })() : '<td class="log-cite"></td>';
+        return `<tr class="${levelCls}"><td class="log-ts">${escHtml(relStr)}</td><td><span class="log-source log-src-${escHtml(entry.source)}">${escHtml(entry.source)}</span></td><td class="log-step">${escHtml(entry.stepId || '')}</td><td class="log-msg">${escHtml(entry.message)}</td>${citeHtml}</tr>`;
+      }).join('');
+      const sources = [...new Set(logTimeline.map(e => e.source))];
+      const sourcesSummary = sources.map(s => `<span class="log-source log-src-${escHtml(s)}">${escHtml(s)}</span>`).join(' ');
+      html += `<div class="log-timeline-section"><div class="section-title">Log Timeline</div><div class="timeline-meta">${logTimeline.length} entries from ${sourcesSummary}</div><table class="timeline-table"><tr><th>Time</th><th>Source</th><th>Step</th><th>Message</th><th>Cite</th></tr>${rows}</table></div>`;
+    }
+    // Raw log sections (collapsible, with line numbers and anchors for citations)
+    if (rawLogs.size > 0) {
+      html += '<div class="raw-logs-section"><div class="section-title">Raw Logs</div>';
+      for (const [filename, content] of rawLogs) {
+        const fileSlug = filename.replace(/[^a-zA-Z0-9]/g, '-');
+        const lines = content.split('\n');
+        const maxLines = Math.min(lines.length, 1000);
+        const numberedLines = lines.slice(0, maxLines).map((line, i) => {
+          const lineNo = i + 1;
+          const anchor = `${fileSlug}-L${lineNo}`;
+          return `<span id="${anchor}" class="raw-line"><span class="raw-ln">${lineNo}</span>${escHtml(line)}</span>`;
+        }).join('\n');
+        const truncNote = lines.length > 1000 ? `<div class="raw-trunc">Showing first 1000 of ${lines.length} lines</div>` : '';
+        html += `<details class="raw-log-block"><summary>${escHtml(filename)} (${lines.length} lines)</summary><pre class="raw-log-pre">${numberedLines}</pre>${truncNote}</details>`;
+      }
+      html += '</div>';
+    }
+    return html;
   };
 
   // Embed run data as JSON for machine consumption
@@ -259,6 +403,36 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
   .step-screenshot { max-width: 280px; border-radius: 8px; margin-top: 10px; border: 1px solid #333; cursor: pointer; transition: max-width 0.3s; }
   .step-screenshot:hover { max-width: 500px; }
   .footer { text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid #333; font-size: 0.75em; color: #666; }
+  .log-timeline-section { max-width: 1200px; margin: 24px auto 0; }
+  .section-title { font-size: 1.1em; font-weight: 700; color: #ddd; margin-bottom: 12px; }
+  .timeline-meta { font-size: 0.8em; color: #888; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .timeline-table { width: 100%; font-size: 0.8em; border-collapse: collapse; background: #16213e; border-radius: 8px; overflow: hidden; }
+  .timeline-table th { text-align: left; color: #888; padding: 8px 10px; border-bottom: 1px solid #333; font-weight: 600; }
+  .timeline-table td { padding: 5px 10px; border-bottom: 1px solid #222; vertical-align: top; }
+  .log-ts { font-family: 'SF Mono', 'Consolas', monospace; color: #888; white-space: nowrap; }
+  .log-source { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.85em; font-weight: 600; }
+  .log-src-app { background: #4fc3f722; color: #4fc3f7; }
+  .log-src-backend { background: #81c78422; color: #81c784; }
+  .log-src-device { background: #ce93d822; color: #ce93d8; }
+  .log-source:not(.log-src-app):not(.log-src-backend):not(.log-src-device) { background: #aaa22; color: #aaa; }
+  .log-step { color: #888; font-size: 0.9em; }
+  .log-msg { color: #ccc; font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.95em; word-break: break-word; }
+  .log-cite { white-space: nowrap; }
+  .log-cite a { color: #666; text-decoration: none; font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.85em; }
+  .log-cite a:hover { color: #4fc3f7; text-decoration: underline; }
+  .log-error td { background: #e9456010; }
+  .log-error .log-msg { color: #e94560; }
+  .log-warn td { background: #f0a50010; }
+  .log-warn .log-msg { color: #f0a500; }
+  .raw-logs-section { max-width: 1200px; margin: 20px auto 0; }
+  .raw-log-block { background: #16213e; border-radius: 8px; margin-bottom: 8px; border: 1px solid #333; }
+  .raw-log-block summary { padding: 10px 14px; cursor: pointer; color: #aaa; font-size: 0.85em; font-weight: 600; }
+  .raw-log-block summary:hover { color: #ddd; }
+  .raw-log-pre { padding: 10px; overflow-x: auto; font-size: 0.75em; line-height: 1.6; color: #aaa; max-height: 400px; overflow-y: auto; }
+  .raw-line { display: block; }
+  .raw-line:target { background: #f0a50020; color: #fff; }
+  .raw-ln { display: inline-block; width: 45px; text-align: right; padding-right: 10px; color: #555; user-select: none; }
+  .raw-trunc { padding: 6px 14px; font-size: 0.75em; color: #888; border-top: 1px solid #333; }
   @media (max-width: 768px) { .container { flex-direction: column; } .video-panel { flex: none; position: static; } .video-panel video { max-width: 100%; } body { padding: 12px; } .step-screenshot { max-width: 100%; } }
 </style>
 </head>
@@ -283,6 +457,7 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
 ${run.steps.map((s, i) => renderStep(s, i)).join('\n')}
   </div>
 </div>
+${renderLogTimeline()}
 <div class="footer">Generated by flow-walker v${PKG_VERSION} &middot; <a href="https://github.com/beastoin/flow-walker" style="color:#666">github.com/beastoin/flow-walker</a></div>
 </body>
 </html>`;

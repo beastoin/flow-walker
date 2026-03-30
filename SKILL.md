@@ -7,7 +7,7 @@ description: Execute E2E flow tests using flow-walker CLI. Covers 3 use cases --
 
 ## Start Here
 
-- Require `node >= 22`, `flow-walker-cli >= 0.5.2`, and `agent-flutter-cli` in `PATH`.
+- Require `node >= 22`, `flow-walker-cli >= 0.5.4`, and `agent-flutter-cli` in `PATH`.
 - Pass `--json` on every `flow-walker` command. Parse JSON or NDJSON only.
 - Treat exit codes as contract: `0` success, `1` flow failure, `2` error or unverified result.
 - Query the live CLI surface before guessing: `flow-walker schema --json` or `flow-walker schema <command>`.

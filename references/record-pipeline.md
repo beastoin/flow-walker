@@ -65,7 +65,7 @@ Example shape:
       "events": [
         "step.start",
         "action",
-        "artifact (screenshot: step-S1.webp)",
+        "artifact (screenshot — auto-timestamped)",
         "assert (milestone: home-visible)",
         "step.end"
       ]
@@ -128,7 +128,7 @@ Use positional `agent-flutter` commands:
 ```bash
 agent-flutter press @e3
 agent-flutter press 540 1200
-agent-flutter screenshot "$RUN_DIR/step-S1.webp"
+agent-flutter screenshot "$RUN_DIR/screenshot.webp"
 ```
 
 Recommended `action` event for a press:
@@ -206,7 +206,7 @@ Prefer sending a whole step at once.
 ```json
 {"type":"step.start","step_id":"S1"}
 {"type":"action","step_id":"S1","command":"press","element_ref":"e3","element_text":"Login","element_type":"button","element_bounds":{"x":480,"y":1180,"width":120,"height":44}}
-{"type":"artifact","step_id":"S1","path":"step-S1.webp","kind":"screenshot"}
+{"type":"artifact","step_id":"S1","path":"screenshot.webp","kind":"screenshot"}
 {"type":"assert","step_id":"S1","milestone":"home-visible","kind":"text-visible","passed":true}
 {"type":"agent-review","step_id":"S1","prompt_idx":0,"verdict":"pass","reason":"Home UI is visible"}
 {"type":"step.end","step_id":"S1","outcome":"pass"}
@@ -221,6 +221,7 @@ flow-walker record stream --run-id "$RUN_ID" --run-dir "$RUN_DIR" --json < ./ste
 Why this pattern:
 - Keep event order stable.
 - Let `record stream` assign `seq` and `ts`.
+- Artifact files are auto-renamed to `{compactTimestamp}-{stepId}-{originalName}` (e.g., `20260329T100000100Z-S1-screenshot.webp`). Use any filename — the system timestamps it.
 - Reduce partial-step writes.
 
 ## Replay-Aware Execution

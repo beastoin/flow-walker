@@ -3,6 +3,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { FlowWalkerError, ErrorCodes } from './errors.ts';
+import { findRunFile } from './run-files.ts';
 
 const DEFAULT_API_URL = 'https://flow-walker.beastoin.workers.dev';
 
@@ -24,8 +25,8 @@ export async function pushReport(
 ): Promise<PushResult> {
   const apiUrl = resolveApiUrl(options.apiUrl);
 
-  // Find report.html
-  const reportPath = join(runDir, 'report.html');
+  // Find report.html (supports timestamped filenames)
+  const reportPath = findRunFile(runDir, 'report.html');
   if (!existsSync(reportPath)) {
     throw new FlowWalkerError(
       ErrorCodes.FILE_NOT_FOUND,
@@ -43,7 +44,7 @@ export async function pushReport(
   let appName: string | undefined;
   let appUrl: string | undefined;
   let runJsonContent: string | undefined;
-  const runJsonPath = join(runDir, 'run.json');
+  const runJsonPath = findRunFile(runDir, 'run.json');
   if (existsSync(runJsonPath)) {
     try {
       const raw = readFileSync(runJsonPath, 'utf-8');

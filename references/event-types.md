@@ -9,7 +9,7 @@
 
 ## Global Rules
 
-`record stream` validates event type names and requires `step_id` on step-scoped events. It also adds `seq` and `ts` if they are missing.
+`record stream` validates event type names and requires `step_id` on step-scoped events. It also adds `seq` and `ts` if they are missing. Artifact files (`path` on artifact events, `screenshot` on any event) are auto-renamed to `{compactTimestamp}-{stepId}-{originalName}` for chronological synthesis.
 
 Step-scoped event types:
 - `step.start`
@@ -145,12 +145,12 @@ Operationally important fields:
 - `kind`
 - `label`
 
-Use `path` relative to the run directory when possible.
+Use `path` relative to the run directory. Any filename works — `record stream` auto-renames it with a timestamp prefix for chronological ordering.
 
 Example:
 
 ```json
-{"type":"artifact","step_id":"S1","kind":"screenshot","path":"step-S1.webp"}
+{"type":"artifact","step_id":"S1","kind":"screenshot","path":"screenshot.webp"}
 ```
 
 ### `step.end`
@@ -204,10 +204,19 @@ Useful fields:
 - `message`
 - `kind`
 
-Example:
+Log timeline fields (reporter auto-renders these as a correlated timeline):
+- `source` — origin of the log line (e.g., `"app"`, `"backend"`, `"device"`). Color-coded in report.
+- `message` — the log content.
+- `level` — `"error"`, `"warn"`, `"info"`, or `"debug"`. Error/warn get highlighted.
+
+The reporter also auto-discovers `.log` files in the run directory, parses their timestamps, correlates lines with steps by time range, and renders them in the timeline with `filename:line` citations. Drop log files as artifacts — no manual note events needed.
+
+Examples:
 
 ```json
 {"type":"note","step_id":"S2","message":"Recovered after reconnect"}
+{"type":"note","step_id":"S3","source":"app","message":"SyncProvider: POST /v2/sync-local-files"}
+{"type":"note","step_id":"S3","source":"backend","message":"POST /v2/sync 202 Accepted","level":"info"}
 ```
 
 ### `agent-review`
