@@ -195,6 +195,47 @@ describe('buildHtmlV2', () => {
     assert.ok(html.includes('unverified'), 'should use unverified CSS class');
   });
 
+  it('finds screenshots from screenshot field on action events', () => {
+    const data = makeResult({
+      flow: 'screenshot-field', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'check', do: 'Open sync page', outcome: 'pass' as const,
+        events: [
+          { type: 'action', step_id: 'S1', screenshot: 's1-pending-wal.webp' },
+        ],
+        expectations: [],
+      }],
+      issues: [],
+    });
+    // Provide screenshot data as if loaded from file
+    const screenshots = new Map<string, string>();
+    screenshots.set('s1-pending-wal.webp', 'AAAA'); // fake base64
+    const stepMap = new Map<string, string>();
+    stepMap.set('S1', 's1-pending-wal.webp');
+    const html = buildHtmlV2(data, screenshots, '', 0, stepMap);
+    assert.ok(html.includes('data:image/webp;base64,AAAA'), 'should embed screenshot from screenshot field');
+  });
+
+  it('finds screenshots from artifact events with any filename', () => {
+    const data = makeResult({
+      flow: 'artifact-any-name', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'check', do: 'Open page', outcome: 'pass' as const,
+        events: [
+          { type: 'artifact', step_id: 'S1', path: 'my-custom-screenshot.webp' },
+        ],
+        expectations: [],
+      }],
+      issues: [],
+    });
+    const screenshots = new Map<string, string>();
+    screenshots.set('my-custom-screenshot.webp', 'BBBB');
+    const stepMap = new Map<string, string>();
+    stepMap.set('S1', 'my-custom-screenshot.webp');
+    const html = buildHtmlV2(data, screenshots, '', 0, stepMap);
+    assert.ok(html.includes('data:image/webp;base64,BBBB'), 'should embed screenshot from artifact with custom name');
+  });
+
   it('renders AUDIT badge when mode is audit', () => {
     const data = makeResult({
       flow: 'audit-badge', mode: 'audit', result: 'unverified' as const,

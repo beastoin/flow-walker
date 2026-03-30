@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { createRequire } from 'node:module';
 import type { VerifyResult, VerifyStepResult, AutomatedCheck, AgentPrompt } from './verify.ts';
@@ -6,34 +6,90 @@ const PKG_VERSION = (createRequire(import.meta.url)('../package.json') as { vers
 
 export interface ReportOptions { noVideo?: boolean; output?: string; }
 
+/** Try to load an image file into the screenshot map under one or more keys */
+function loadImage(runDir: string, filePath: string, screenshotData: Map<string, string>): boolean {
+  const candidates = [join(runDir, filePath), join(runDir, basename(filePath))];
+  for (const imgPath of candidates) {
+    try {
+      const imgData = readFileSync(imgPath);
+      if (imgData.length === 0) continue;
+      const b64 = imgData.toString('base64');
+      screenshotData.set(filePath, b64);
+      screenshotData.set(basename(filePath), b64);
+      return true;
+    } catch { /* try next */ }
+  }
+  return false;
+}
+
 export function generateReportV2(runResult: VerifyResult, runDir: string, options: ReportOptions = {}): string {
   const outputPath = options.output ?? join(runDir, 'report.html');
   const screenshotData: Map<string, string> = new Map();
-  // 1. Collect screenshots from artifact events
+  // Per-step screenshot mapping: step ID → filename
+  const stepScreenshot: Map<string, string> = new Map();
+
+  // 1. Collect screenshots from ALL events — artifact events, screenshot fields, path fields
   for (const step of runResult.steps) {
     for (const ev of step.events as Array<Record<string, unknown>>) {
+      // Artifact events (primary)
       if (ev.type === 'artifact' && ev.path) {
         const evPath = ev.path as string;
-        const candidates = [join(runDir, evPath), join(runDir, basename(evPath))];
-        for (const imgPath of candidates) {
-          try { const imgData = readFileSync(imgPath); screenshotData.set(evPath, imgData.toString('base64')); screenshotData.set(basename(evPath), imgData.toString('base64')); break; } catch { /* try next */ }
+        if (loadImage(runDir, evPath, screenshotData)) {
+          stepScreenshot.set(step.id, basename(evPath));
+        }
+      }
+      // Screenshot field on any event type (action, assert, agent-review, etc.)
+      const screenshotField = ev.screenshot as string | undefined;
+      if (screenshotField && !stepScreenshot.has(step.id)) {
+        if (loadImage(runDir, screenshotField, screenshotData)) {
+          stepScreenshot.set(step.id, basename(screenshotField));
         }
       }
     }
   }
+
   // 2. Auto-detect screenshots by step ID pattern
   for (const step of runResult.steps) {
+    if (stepScreenshot.has(step.id)) continue;
     const key = `step-${step.id}`;
     if (screenshotData.has(`${key}.webp`) || screenshotData.has(`${key}.png`)) continue;
     const patterns = [`${key}.webp`, `${key}.png`, `${key}.jpg`, `${step.id}.webp`, `${step.id}.png`, `${step.id}.jpg`];
     for (const p of patterns) {
       const candidate = join(runDir, p);
       if (existsSync(candidate)) {
-        try { screenshotData.set(p, readFileSync(candidate).toString('base64')); } catch { /* skip */ }
+        try { screenshotData.set(p, readFileSync(candidate).toString('base64')); stepScreenshot.set(step.id, p); } catch { /* skip */ }
         break;
       }
     }
   }
+
+  // 3. Scan run directory for any unmatched image files and assign to steps without screenshots
+  try {
+    const files = readdirSync(runDir).filter(f => /\.(webp|png|jpg|jpeg)$/i.test(f)).sort();
+    const unmatched = runResult.steps.filter(s => !stepScreenshot.has(s.id));
+    for (const file of files) {
+      if (screenshotData.has(file)) continue;
+      // Try to match by step ID in filename (e.g., "s1-pending.webp" matches S1)
+      const idMatch = file.match(/(?:^|[-_])s(\d+)[-_.]/i) || file.match(/(?:^|[-_])(S\d+)[-_.]/i);
+      if (idMatch) {
+        const matchId = `S${idMatch[1].replace(/^S/i, '')}`;
+        const step = runResult.steps.find(s => s.id === matchId);
+        if (step && !stepScreenshot.has(step.id)) {
+          if (loadImage(runDir, file, screenshotData)) {
+            stepScreenshot.set(step.id, file);
+          }
+        }
+      }
+    }
+    // Assign remaining images to remaining unmatched steps in order
+    const stillUnmatched = runResult.steps.filter(s => !stepScreenshot.has(s.id));
+    const unusedImages = files.filter(f => !Array.from(stepScreenshot.values()).includes(f) && !screenshotData.has(f));
+    for (let i = 0; i < Math.min(stillUnmatched.length, unusedImages.length); i++) {
+      if (loadImage(runDir, unusedImages[i], screenshotData)) {
+        stepScreenshot.set(stillUnmatched[i].id, unusedImages[i]);
+      }
+    }
+  } catch { /* directory scan failed — not critical */ }
   // 3. Detect video
   let videoBase64 = '';
   const videoPath = join(runDir, 'recording.mp4');
@@ -47,12 +103,12 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
   if (timestamps.length >= 2) {
     durationMs = Math.max(...timestamps) - Math.min(...timestamps);
   }
-  const html = buildHtmlV2(runResult, screenshotData, videoBase64, durationMs);
+  const html = buildHtmlV2(runResult, screenshotData, videoBase64, durationMs, stepScreenshot);
   writeFileSync(outputPath, html);
   return outputPath;
 }
 
-export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> = new Map(), videoBase64: string = '', durationMs: number = 0): string {
+export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> = new Map(), videoBase64: string = '', durationMs: number = 0, stepScreenshotMap: Map<string, string> = new Map()): string {
   const passCount = run.steps.filter(s => s.outcome === 'pass').length;
   const failCount = run.steps.filter(s => s.outcome === 'fail').length;
   const skipCount = run.steps.filter(s => s.outcome === 'skipped').length;
@@ -92,9 +148,16 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
   const renderStep = (s: VerifyStepResult, i: number): string => {
     const icon = s.outcome === 'pass' ? '&#10003;' : s.outcome === 'fail' ? '&#10007;' : '&#9675;';
     const cls = s.outcome === 'pass' ? 'pass' : s.outcome === 'fail' ? 'fail' : 'skip';
+    // Find screenshot: explicit map → artifact event → screenshot field → pattern match
+    const mapped = stepScreenshotMap.get(s.id);
     const artifact = (s.events as Array<Record<string, unknown>>).find(e => e.type === 'artifact' && e.path);
     const artifactPath = artifact?.path as string | undefined;
-    const imgKey = (artifactPath && screenshots.has(artifactPath) ? artifactPath : undefined)
+    const screenshotField = (s.events as Array<Record<string, unknown>>).find(e => e.screenshot)?.screenshot as string | undefined;
+    const imgKey = (mapped && screenshots.has(mapped) ? mapped : undefined)
+      || (artifactPath && screenshots.has(artifactPath) ? artifactPath : undefined)
+      || (artifactPath && screenshots.has(basename(artifactPath)) ? basename(artifactPath) : undefined)
+      || (screenshotField && screenshots.has(screenshotField) ? screenshotField : undefined)
+      || (screenshotField && screenshots.has(basename(screenshotField)) ? basename(screenshotField) : undefined)
       || [`step-${s.id}.webp`, `step-${s.id}.png`, `step-${s.id}.jpg`].find(k => screenshots.has(k))
       || `step-${s.id}.png`;
     const imgB64 = screenshots.get(imgKey);
