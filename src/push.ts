@@ -58,16 +58,14 @@ export async function pushReport(
         stepsTotal = runData.steps.length;
         stepsPass = runData.steps.filter((s: { status?: string; outcome?: string }) => s.status === 'pass' || s.outcome === 'pass').length;
       }
-      // Prepare run.json for upload — strip local file paths
+      // Prepare run.json for upload — keep all agent-readable fields
+      // (screenshots map, logTimeline, duration are preserved for agent consumption)
       const uploadData = { ...runData };
-      delete uploadData.video;
+      // Strip binary-path fields that only make sense locally
       delete uploadData.log;
-      if (Array.isArray(uploadData.steps)) {
-        uploadData.steps = uploadData.steps.map((s: Record<string, unknown>) => {
-          const { screenshot: _s, ...rest } = s;
-          return rest;
-        });
-      }
+      // Convert video filename to boolean flag (binary not uploaded)
+      if (uploadData.video) uploadData.hasVideo = true;
+      delete uploadData.video;
       runJsonContent = JSON.stringify(uploadData);
     } catch { /* ignore parse errors */ }
   }
@@ -119,12 +117,15 @@ export async function pushReport(
   const result = await response.json() as PushResult;
 
   // Upload run.json (best-effort — don't fail push if this fails)
+  // Inject htmlUrl so agents can access the full report (with embedded video/screenshots)
   if (runJsonContent && result.id) {
     try {
+      const enriched = JSON.parse(runJsonContent);
+      enriched.htmlUrl = result.htmlUrl;
       await fetch(`${apiUrl}/runs/${result.id}.json`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: runJsonContent,
+        body: JSON.stringify(enriched),
       });
     } catch { /* best-effort */ }
   }

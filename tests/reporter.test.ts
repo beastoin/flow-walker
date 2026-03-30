@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHtmlV2 } from '../src/reporter.ts';
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { buildHtmlV2, generateReportV2 } from '../src/reporter.ts';
 import type { LogEntry } from '../src/reporter.ts';
 import type { VerifyResult } from '../src/verify.ts';
 
@@ -368,5 +371,81 @@ describe('buildHtmlV2', () => {
     const html = buildHtmlV2(data, new Map(), '', 0, new Map(), timeline);
     assert.ok(html.includes('3 entries'), 'should show entry count');
     assert.ok(html.includes('timeline-meta'), 'should have meta section');
+  });
+});
+
+describe('generateReportV2 enriches run.json', () => {
+  it('writes logTimeline and duration back to run.json', () => {
+    const d = mkdtempSync(join(tmpdir(), 'fw-report-enrich-'));
+    const runData: VerifyResult = makeResult({
+      flow: 'enrich-test', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'sync', do: 'Trigger sync', outcome: 'pass' as const,
+        events: [
+          { type: 'step.start', step_id: 'S1', ts: '2026-03-30T10:00:00.000Z', seq: 0 },
+          { type: 'note', step_id: 'S1', source: 'app', message: 'SyncProvider started', ts: '2026-03-30T10:00:01.000Z', seq: 1 },
+          { type: 'note', step_id: 'S1', source: 'backend', message: 'POST received', ts: '2026-03-30T10:00:02.000Z', seq: 2 },
+          { type: 'step.end', step_id: 'S1', ts: '2026-03-30T10:00:05.000Z', seq: 3 },
+        ],
+        expectations: [],
+      }],
+      issues: [],
+    });
+    // Write run.json and meta
+    writeFileSync(join(d, 'run.json'), JSON.stringify(runData));
+    writeFileSync(join(d, 'run.meta.json'), JSON.stringify({ startedAt: '2026-03-30T10:00:00Z' }));
+    generateReportV2(runData, d);
+    const enriched = JSON.parse(readFileSync(join(d, 'run.json'), 'utf-8'));
+    assert.equal(enriched.duration, 5000, 'should have duration in ms');
+    assert.ok(Array.isArray(enriched.logTimeline), 'should have logTimeline array');
+    assert.equal(enriched.logTimeline.length, 2, 'should have 2 note events in timeline');
+    assert.equal(enriched.logTimeline[0].source, 'app');
+    assert.equal(enriched.logTimeline[1].source, 'backend');
+  });
+
+  it('writes screenshots map to run.json', () => {
+    const d = mkdtempSync(join(tmpdir(), 'fw-report-ss-'));
+    const runData: VerifyResult = makeResult({
+      flow: 'ss-test', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'x', do: 'x', outcome: 'pass' as const,
+        events: [
+          { type: 'step.start', step_id: 'S1', ts: '2026-03-30T10:00:00Z', seq: 0 },
+          { type: 'artifact', step_id: 'S1', path: 'step-S1.webp', seq: 1, ts: '2026-03-30T10:00:01Z' },
+          { type: 'step.end', step_id: 'S1', ts: '2026-03-30T10:00:02Z', seq: 2 },
+        ],
+        expectations: [],
+      }],
+      issues: [],
+    });
+    // Create a fake screenshot file
+    writeFileSync(join(d, 'step-S1.webp'), Buffer.from('RIFF\x00\x00\x00\x00WEBP'));
+    writeFileSync(join(d, 'run.json'), JSON.stringify(runData));
+    writeFileSync(join(d, 'run.meta.json'), JSON.stringify({}));
+    generateReportV2(runData, d);
+    const enriched = JSON.parse(readFileSync(join(d, 'run.json'), 'utf-8'));
+    assert.ok(enriched.screenshots, 'should have screenshots map');
+    assert.equal(enriched.screenshots.S1, 'step-S1.webp', 'should map S1 to filename');
+  });
+
+  it('does not add logTimeline when no notes or logs exist', () => {
+    const d = mkdtempSync(join(tmpdir(), 'fw-report-nolog-'));
+    const runData: VerifyResult = makeResult({
+      flow: 'nolog-test', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'x', do: 'x', outcome: 'pass' as const,
+        events: [
+          { type: 'step.start', step_id: 'S1', ts: '2026-03-30T10:00:00Z', seq: 0 },
+          { type: 'step.end', step_id: 'S1', ts: '2026-03-30T10:00:01Z', seq: 1 },
+        ],
+        expectations: [],
+      }],
+      issues: [],
+    });
+    writeFileSync(join(d, 'run.json'), JSON.stringify(runData));
+    writeFileSync(join(d, 'run.meta.json'), JSON.stringify({}));
+    generateReportV2(runData, d);
+    const enriched = JSON.parse(readFileSync(join(d, 'run.json'), 'utf-8'));
+    assert.equal(enriched.logTimeline, undefined, 'should not add empty logTimeline');
   });
 });

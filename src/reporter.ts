@@ -196,6 +196,24 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
 
   const html = buildHtmlV2(runResult, screenshotData, videoBase64, durationMs, stepScreenshot, logTimeline, rawLogs);
   writeFileSync(outputPath, html);
+
+  // Enrich run.json with log timeline, duration, screenshots, and video for agent consumption
+  try {
+    const runJsonPath = findRunFile(runDir, 'run.json');
+    if (existsSync(runJsonPath)) {
+      const runData = JSON.parse(readFileSync(runJsonPath, 'utf-8'));
+      runData.duration = durationMs;
+      if (logTimeline.length > 0) runData.logTimeline = logTimeline;
+      // Screenshot map: stepId → filename
+      const screenshotMap: Record<string, string> = {};
+      for (const [stepId, filename] of stepScreenshot) screenshotMap[stepId] = filename;
+      if (Object.keys(screenshotMap).length > 0) runData.screenshots = screenshotMap;
+      // Video filename
+      if (existsSync(videoPath)) runData.video = basename(videoPath);
+      writeFileSync(runJsonPath, JSON.stringify(runData));
+    }
+  } catch { /* best-effort */ }
+
   // Store report filename in meta
   try {
     const metaPath = join(runDir, 'run.meta.json');
