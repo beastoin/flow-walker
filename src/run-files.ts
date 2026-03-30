@@ -8,13 +8,15 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** Find a file by fixed name or timestamped variant (e.g., {ts}-events.jsonl). */
+/** Find a file by fixed name or timestamped variant (e.g., {ts}-events.jsonl).
+ *  When multiple timestamped variants exist, returns the latest (last alphabetically). */
 export function findRunFile(dir: string, fixedName: string): string {
   const fixed = join(dir, fixedName);
   if (existsSync(fixed)) return fixed;
   try {
-    const match = readdirSync(dir).find(f => f.endsWith('-' + fixedName));
-    if (match) return join(dir, match);
+    const suffix = '-' + fixedName;
+    const matches = readdirSync(dir).filter(f => f.endsWith(suffix)).sort();
+    if (matches.length > 0) return join(dir, matches[matches.length - 1]);
   } catch { /* fall through */ }
   return fixed;
 }
