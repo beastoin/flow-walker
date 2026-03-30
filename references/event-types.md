@@ -216,11 +216,10 @@ Example:
 
 ### How it works
 
-1. **Agent captures raw logs** — save timestamped log output to files in the run directory:
-   - `app.log` — Flutter/app-side logs (e.g., `adb logcat -d > app.log`)
-   - `backend.log` — server-side logs (e.g., `curl .../logs > backend.log`)
-   - Any `*.log` file works — the filename (minus extension and timestamp prefix) becomes the source name
-2. **`record finish`** — auto-renames log files with timestamp prefix (e.g., `app.log` → `20260330T100001Z-app.log`)
+1. **Agent captures raw logs** — save timestamped log output to the run directory using timestamp-based names (provided by `record init` in the `evidence` field):
+   - `{ts}-app.log` — Flutter/app-side logs (e.g., `adb logcat -d > $RUN_DIR/20260330T100001Z-app.log`)
+   - `{ts}-backend.log` — server-side logs (e.g., `curl .../logs > $RUN_DIR/20260330T100001Z-backend.log`)
+   - Any `*-{name}.log` file works — the name part (after timestamp prefix) becomes the source name in the timeline
 3. **`report`** — auto-discovers all `.log` files, parses timestamps from each line, filters to the run time window, correlates each line with the step it falls within (by time range), and injects step boundary markers (▶ start, ■ end)
 4. **Output** — the `logTimeline` array in run.json contains the full machine-synthesized timeline with:
    - `ts` — parsed timestamp from the log line
@@ -241,11 +240,15 @@ The parser handles:
 ### Agent workflow
 
 ```bash
-# During recording, capture logs as evidence:
-adb logcat -d > $RUN_DIR/app.log
-curl -s https://api.example.com/logs?since=$START > $RUN_DIR/backend.log
+# record init provides the timestamp prefix in the evidence field:
+# "Save app logs to /runs/abc123/20260330T100001Z-app.log ..."
+TS_PREFIX="20260330T100001Z"  # from init result
 
-# finish auto-timestamps the log files
+# During recording, capture logs with timestamp-based names:
+adb logcat -d > $RUN_DIR/${TS_PREFIX}-app.log
+curl -s https://api.example.com/logs?since=$START > $RUN_DIR/${TS_PREFIX}-backend.log
+
+# finish closes the run (log files already have timestamp names)
 flow-walker record finish --run-id $ID --run-dir $DIR --status pass
 
 # report machine-synthesizes the timeline
@@ -261,8 +264,8 @@ flow-walker get $ID --json  # → { logTimeline: [...], ... }
 {
   "logTimeline": [
     { "ts": "2026-03-30T10:00:00.000Z", "source": "step", "message": "▶ S1: Navigate to Offline Sync", "stepId": "S1" },
-    { "ts": "2026-03-30T10:00:00.500Z", "source": "app", "message": "SyncProvider: auto-sync triggered", "stepId": "S1", "cite": "20260330T100000Z-app.log:42" },
-    { "ts": "2026-03-30T10:00:01.000Z", "source": "backend", "message": "POST /v2/sync-local-files 202", "stepId": "S1", "level": "info", "cite": "20260330T100000Z-backend.log:15" },
+    { "ts": "2026-03-30T10:00:00.500Z", "source": "app", "message": "SyncProvider: auto-sync triggered", "stepId": "S1", "cite": "20260330T100001Z-app.log:42" },
+    { "ts": "2026-03-30T10:00:01.000Z", "source": "backend", "message": "POST /v2/sync-local-files 202", "stepId": "S1", "level": "info", "cite": "20260330T100001Z-backend.log:15" },
     { "ts": "2026-03-30T10:00:05.000Z", "source": "step", "message": "■ S1: pass", "stepId": "S1" },
     { "ts": "2026-03-30T10:00:05.100Z", "source": "step", "message": "▶ S2: Upload phase begins", "stepId": "S2" }
   ]

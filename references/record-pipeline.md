@@ -164,17 +164,22 @@ Use a boolean `passed`. Do not emit `"pass"` as a string in `assert`.
 
 Before finishing, capture raw logs as integrity evidence. flow-walker machine-synthesizes the timeline from these files — no manual annotation needed.
 
+Use the timestamp prefix from `record init` for consistent naming:
+
 ```bash
-# App logs (e.g., Flutter/logcat)
-adb logcat -d -t "$START_TIME" > "$RUN_DIR/app.log"
+# Extract the timestamp prefix from init result
+TS_PREFIX=$(echo "$INIT" | jq -r '.evidence[0]' | grep -oP '\d{8}T\d+Z')
 
-# Backend logs (e.g., from server API)
-curl -s "https://api.example.com/logs?since=$START_TIME&until=$END_TIME" > "$RUN_DIR/backend.log"
+# App logs (e.g., Flutter/logcat) — timestamp-based name
+adb logcat -d -t "$START_TIME" > "$RUN_DIR/${TS_PREFIX}-app.log"
 
-# Any *.log file works — filename becomes the source name in the timeline
+# Backend logs (e.g., from server API) — timestamp-based name
+curl -s "https://api.example.com/logs?since=$START_TIME&until=$END_TIME" > "$RUN_DIR/${TS_PREFIX}-backend.log"
+
+# Any *-{name}.log file works — the name part becomes the source in the timeline
 ```
 
-`record finish` auto-renames these with timestamp prefix. `report` auto-discovers, parses timestamps from each line, correlates with steps by time range, and produces a `logTimeline` array with citations to source file:line.
+All files in the run directory use timestamp-based names. `report` auto-discovers `*.log` files, parses timestamps from each line, correlates with steps by time range, and produces a `logTimeline` array with citations to source file:line.
 
 ## Finish and verify
 

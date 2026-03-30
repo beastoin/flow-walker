@@ -83,10 +83,12 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
   } catch { /* flow parse failed — no recipe */ }
 
   // Log capture instructions: tell agents to save raw logs as evidence for machine synthesis
+  // Use timestamp-based names from the start — consistent with all run directory files
+  const tsNow = compactTs(meta.startedAt as string);
   const evidence = [
-    `Save app logs to ${runDir}/app.log (timestamped lines, machine-parsed into timeline)`,
-    `Save backend logs to ${runDir}/backend.log (timestamped lines, machine-parsed into timeline)`,
-    `Log files are auto-renamed with timestamp prefix on finish and synthesized by flow-walker`,
+    `Save app logs to ${runDir}/${tsNow}-app.log (timestamped lines, machine-parsed into timeline)`,
+    `Save backend logs to ${runDir}/${tsNow}-backend.log (timestamped lines, machine-parsed into timeline)`,
+    `All files in the run directory use timestamp-based names. flow-walker synthesizes the timeline from *.log files.`,
   ];
 
   return { id, dir: runDir, video: videoStarted, replay, recipe, evidence };
