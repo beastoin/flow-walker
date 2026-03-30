@@ -398,9 +398,12 @@ describe('generateReportV2 enriches run.json', () => {
     const enriched = JSON.parse(readFileSync(join(d, 'run.json'), 'utf-8'));
     assert.equal(enriched.duration, 5000, 'should have duration in ms');
     assert.ok(Array.isArray(enriched.logTimeline), 'should have logTimeline array');
-    assert.equal(enriched.logTimeline.length, 2, 'should have 2 note events in timeline');
-    assert.equal(enriched.logTimeline[0].source, 'app');
-    assert.equal(enriched.logTimeline[1].source, 'backend');
+    // 2 note events + 2 step markers (start + end) = 4
+    assert.equal(enriched.logTimeline.length, 4, 'should have 4 timeline entries (2 notes + 2 step markers)');
+    const notes = enriched.logTimeline.filter((e: { source: string }) => e.source !== 'step');
+    assert.equal(notes.length, 2, 'should have 2 note events');
+    assert.equal(notes[0].source, 'app');
+    assert.equal(notes[1].source, 'backend');
   });
 
   it('writes screenshots map to run.json', () => {
@@ -428,7 +431,41 @@ describe('generateReportV2 enriches run.json', () => {
     assert.equal(enriched.screenshots.S1, 'step-S1.webp', 'should map S1 to filename');
   });
 
-  it('does not add logTimeline when no notes or logs exist', () => {
+  it('includes step.start and step.end as timeline entries', () => {
+    const d = mkdtempSync(join(tmpdir(), 'fw-report-steps-'));
+    const runData: VerifyResult = makeResult({
+      flow: 'step-timeline', mode: 'audit', result: 'pass' as const,
+      steps: [{
+        id: 'S1', name: 'sync', do: 'Trigger sync', outcome: 'pass' as const,
+        events: [
+          { type: 'step.start', step_id: 'S1', ts: '2026-03-30T10:00:00.000Z', seq: 0 },
+          { type: 'note', step_id: 'S1', source: 'app', message: 'SyncProvider started', ts: '2026-03-30T10:00:01.000Z', seq: 1 },
+          { type: 'step.end', step_id: 'S1', ts: '2026-03-30T10:00:05.000Z', status: 'pass', seq: 2 },
+        ],
+        expectations: [],
+      }],
+      issues: [],
+    });
+    writeFileSync(join(d, 'run.json'), JSON.stringify(runData));
+    writeFileSync(join(d, 'run.meta.json'), JSON.stringify({}));
+    generateReportV2(runData, d);
+    const enriched = JSON.parse(readFileSync(join(d, 'run.json'), 'utf-8'));
+    assert.ok(enriched.logTimeline.some((e: { source: string }) => e.source === 'step'), 'should have step source entries');
+    const stepStart = enriched.logTimeline.find((e: { message: string }) => e.message.includes('▶ S1'));
+    assert.ok(stepStart, 'should have step start marker');
+    assert.equal(stepStart.ts, '2026-03-30T10:00:00.000Z');
+    const stepEnd = enriched.logTimeline.find((e: { message: string }) => e.message.includes('■ S1'));
+    assert.ok(stepEnd, 'should have step end marker');
+    assert.equal(stepEnd.message, '■ S1: pass');
+    // Verify chronological order: start → note → end
+    const startIdx = enriched.logTimeline.indexOf(stepStart);
+    const noteIdx = enriched.logTimeline.findIndex((e: { source: string; message: string }) => e.source === 'app' && e.message === 'SyncProvider started');
+    const endIdx = enriched.logTimeline.indexOf(stepEnd);
+    assert.ok(startIdx < noteIdx, 'step start should come before note');
+    assert.ok(noteIdx < endIdx, 'note should come before step end');
+  });
+
+  it('logTimeline contains only step markers when no notes or logs exist', () => {
     const d = mkdtempSync(join(tmpdir(), 'fw-report-nolog-'));
     const runData: VerifyResult = makeResult({
       flow: 'nolog-test', mode: 'audit', result: 'pass' as const,
@@ -446,6 +483,7 @@ describe('generateReportV2 enriches run.json', () => {
     writeFileSync(join(d, 'run.meta.json'), JSON.stringify({}));
     generateReportV2(runData, d);
     const enriched = JSON.parse(readFileSync(join(d, 'run.json'), 'utf-8'));
-    assert.equal(enriched.logTimeline, undefined, 'should not add empty logTimeline');
+    assert.ok(Array.isArray(enriched.logTimeline), 'should have logTimeline with step markers');
+    assert.ok(enriched.logTimeline.every((e: { source: string }) => e.source === 'step'), 'should only have step markers');
   });
 });

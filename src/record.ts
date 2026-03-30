@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync, unlinkSync, renameSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, appendFileSync, existsSync, unlinkSync, renameSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
@@ -236,6 +236,14 @@ export function recordFinish(ctx: { runId: string; runDir: string; status: strin
     const newName = `${tsPrefix}-flow.lock.yaml`;
     try { renameSync(flowLockFixed, join(runDir, newName)); meta.flowLockFile = newName; } catch { /* keep original */ }
   }
+  // Log files (backend.log, app.log, etc.)
+  try {
+    const logFiles = readdirSync(runDir).filter(f => /\.log$/i.test(f) && !f.match(/^\d{8}T\d+Z-/));
+    for (const logFile of logFiles) {
+      const newName = `${tsPrefix}-${logFile}`;
+      try { renameSync(join(runDir, logFile), join(runDir, newName)); } catch { /* keep original */ }
+    }
+  } catch { /* best-effort */ }
 
   writeFileSync(metaPath, JSON.stringify(meta));
 

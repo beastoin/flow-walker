@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { recordInit, recordStream, recordFinish, generateRecipe, compactTs } from '../src/record.ts';
@@ -147,6 +147,31 @@ describe('timestamp-based artifact naming', () => {
     const ev1 = JSON.parse(lines[0]);
     const ev2 = JSON.parse(lines[1]);
     assert.ok(ev1.path < ev2.path, `${ev1.path} should sort before ${ev2.path}`);
+  });
+});
+
+describe('recordFinish renames log files', () => {
+  it('renames .log files with timestamp prefix', () => {
+    setup();
+    const r = recordInit({ flowPath: flowFile, outputDir: tmpDir });
+    // Simulate log files dropped into run dir
+    writeFileSync(join(r.dir, 'backend.log'), '2026-03-30T10:00:00Z POST /sync 202\n');
+    writeFileSync(join(r.dir, 'app.log'), '2026-03-30T10:00:01Z SyncProvider started\n');
+    recordFinish({ runId: r.id, runDir: tmpDir, status: 'pass' });
+    const files = readdirSync(r.dir);
+    assert.ok(!files.includes('backend.log'), 'backend.log should be renamed');
+    assert.ok(!files.includes('app.log'), 'app.log should be renamed');
+    assert.ok(files.some(f => f.endsWith('-backend.log')), `should have timestamped backend.log: ${files.filter(f => f.includes('log')).join(', ')}`);
+    assert.ok(files.some(f => f.endsWith('-app.log')), `should have timestamped app.log: ${files.filter(f => f.includes('log')).join(', ')}`);
+  });
+
+  it('skips already-timestamped log files', () => {
+    setup();
+    const r = recordInit({ flowPath: flowFile, outputDir: tmpDir });
+    writeFileSync(join(r.dir, '20260330T100000Z-backend.log'), 'already timestamped\n');
+    recordFinish({ runId: r.id, runDir: tmpDir, status: 'pass' });
+    const files = readdirSync(r.dir);
+    assert.ok(files.includes('20260330T100000Z-backend.log'), 'already-timestamped file should not be double-renamed');
   });
 });
 

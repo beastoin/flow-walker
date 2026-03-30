@@ -148,7 +148,8 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
         // Derive source name: strip timestamp prefix and extension
         // e.g., "20260330T100001Z-S3-backend.log" → "backend"
         // e.g., "backend.log" → "backend"
-        const sourceName = logFile.replace(/^\d{8}T\d+Z-\w+-/, '').replace(/\.log$/i, '');
+        // Strip timestamp prefix: "20260330T100001Z-backend.log" or "20260330T100001Z-S1-backend.log" → "backend"
+        const sourceName = logFile.replace(/^\d{8}T\d+Z-(?:S\d+-)?/, '').replace(/\.log$/i, '');
         let parsed = parseLogFile(content);
         parsed = filterByTimeWindow(parsed, runStartIso, runEndIso);
         for (const line of parsed) {
@@ -190,7 +191,21 @@ export function generateReportV2(runResult: VerifyResult, runDir: string, option
     }
   } catch { /* not critical */ }
 
-  // 5e. Sort and cap at 1000 entries
+  // 5e. Inject step.start and step.end as timeline markers so agents see when steps happen
+  for (const step of runResult.steps) {
+    const evs = step.events as Array<Record<string, unknown>>;
+    const startEv = evs.find(e => e.type === 'step.start');
+    const endEv = evs.find(e => e.type === 'step.end');
+    if (startEv?.ts) {
+      logTimeline.push({ ts: startEv.ts as string, source: 'step', message: `▶ ${step.id}: ${step.do}`, stepId: step.id });
+    }
+    if (endEv?.ts) {
+      const outcome = (endEv.status ?? endEv.outcome ?? step.outcome) as string;
+      logTimeline.push({ ts: endEv.ts as string, source: 'step', message: `■ ${step.id}: ${outcome}`, stepId: step.id });
+    }
+  }
+
+  // 5f. Sort and cap at 1000 entries
   logTimeline.sort((a, b) => a.ts.localeCompare(b.ts));
   if (logTimeline.length > 1000) logTimeline.length = 1000;
 
@@ -432,7 +447,8 @@ export function buildHtmlV2(run: VerifyResult, screenshots: Map<string, string> 
   .log-src-app { background: #4fc3f722; color: #4fc3f7; }
   .log-src-backend { background: #81c78422; color: #81c784; }
   .log-src-device { background: #ce93d822; color: #ce93d8; }
-  .log-source:not(.log-src-app):not(.log-src-backend):not(.log-src-device) { background: #aaa22; color: #aaa; }
+  .log-src-step { background: #ffb74d22; color: #ffb74d; font-weight: 700; }
+  .log-source:not(.log-src-app):not(.log-src-backend):not(.log-src-device):not(.log-src-step) { background: #aaa22; color: #aaa; }
   .log-step { color: #888; font-size: 0.9em; }
   .log-msg { color: #ccc; font-family: 'SF Mono', 'Consolas', monospace; font-size: 0.95em; word-break: break-word; }
   .log-cite { white-space: nowrap; }

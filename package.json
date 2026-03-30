@@ -1,6 +1,6 @@
 {
   "name": "flow-walker-cli",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "description": "Agent-first flow testing for Flutter and desktop apps via agent-flutter and agent-swift",
   "type": "module",
   "bin": {
