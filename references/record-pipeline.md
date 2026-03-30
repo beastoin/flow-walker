@@ -160,6 +160,22 @@ Recommended `assert` event:
 
 Use a boolean `passed`. Do not emit `"pass"` as a string in `assert`.
 
+## Capture log evidence
+
+Before finishing, capture raw logs as integrity evidence. flow-walker machine-synthesizes the timeline from these files — no manual annotation needed.
+
+```bash
+# App logs (e.g., Flutter/logcat)
+adb logcat -d -t "$START_TIME" > "$RUN_DIR/app.log"
+
+# Backend logs (e.g., from server API)
+curl -s "https://api.example.com/logs?since=$START_TIME&until=$END_TIME" > "$RUN_DIR/backend.log"
+
+# Any *.log file works — filename becomes the source name in the timeline
+```
+
+`record finish` auto-renames these with timestamp prefix. `report` auto-discovers, parses timestamps from each line, correlates with steps by time range, and produces a `logTimeline` array with citations to source file:line.
+
 ## Finish and verify
 
 Finish the recording:

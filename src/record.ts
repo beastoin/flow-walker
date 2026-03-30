@@ -12,7 +12,7 @@ import type { ReplayPlan } from './snapshot.ts';
 export type Platform = 'mobile' | 'desktop';
 export interface StepRecipe { id: string; name?: string; events: string[]; }
 export interface RecordInitOptions { flowPath: string; outputDir: string; runId?: string; noVideo?: boolean; device?: string; platform?: Platform; }
-export interface RecordInitResult { id: string; dir: string; video?: boolean; replay?: ReplayPlan; recipe?: StepRecipe[]; }
+export interface RecordInitResult { id: string; dir: string; video?: boolean; replay?: ReplayPlan; recipe?: StepRecipe[]; evidence?: string[]; }
 
 export function recordInit(opts: RecordInitOptions): RecordInitResult {
   const id = opts.runId || randomBytes(5).toString('base64url').slice(0, 10);
@@ -82,7 +82,14 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
     recipe = generateRecipe(flow);
   } catch { /* flow parse failed — no recipe */ }
 
-  return { id, dir: runDir, video: videoStarted, replay, recipe };
+  // Log capture instructions: tell agents to save raw logs as evidence for machine synthesis
+  const evidence = [
+    `Save app logs to ${runDir}/app.log (timestamped lines, machine-parsed into timeline)`,
+    `Save backend logs to ${runDir}/backend.log (timestamped lines, machine-parsed into timeline)`,
+    `Log files are auto-renamed with timestamp prefix on finish and synthesized by flow-walker`,
+  ];
+
+  return { id, dir: runDir, video: videoStarted, replay, recipe, evidence };
 }
 
 /** Convert ISO timestamp to compact sortable prefix: 2026-03-29T04:12:00.123Z → 20260329T041200123Z */

@@ -134,6 +134,7 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
       if (result.replay) msg += `\n  Replay: snapshot found — ${Object.keys(result.replay.steps!).length} cached steps, verify: [${result.replay.verifySteps!.join(', ')}]`;
       else msg += '\n  Replay: no snapshot — explore mode (snapshot will be saved on pass)';
       if (result.recipe) msg += `\n  Recipe: ${result.recipe.length} steps with event sequences`;
+      if (result.evidence) msg += `\n  Evidence: capture app.log and backend.log in run dir for machine-synthesized timeline`;
       console.log(msg);
     }
     process.exit(0);
