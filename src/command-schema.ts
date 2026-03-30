@@ -44,8 +44,12 @@ export const COMMAND_SCHEMAS: CommandSchema[] = [
     flags: [{ name: '--output', type: 'path', description: 'Output HTML path' }, { name: '--json', type: 'boolean', description: 'JSON output' }] },
   { name: 'push', description: 'Upload report to hosted service', args: [{ name: 'run-dir', required: true, description: 'Directory with run.json' }],
     flags: [{ name: '--json', type: 'boolean', description: 'JSON output' }] },
-  { name: 'get', description: 'Fetch run data from hosted service', args: [{ name: 'run-id', required: true, description: 'Run ID' }],
-    flags: [{ name: '--json', type: 'boolean', description: 'JSON output' }] },
+  { name: 'get', description: 'Fetch run data from hosted service or local run directory', args: [{ name: 'run-id', required: false, description: 'Run ID (or local run directory path)' }],
+    flags: [
+      { name: '--run-dir', type: 'path', description: 'Read from local run directory instead of hosted service' },
+      { name: '--summary', type: 'boolean', description: 'Compact output: steps without events, logTimeline count only' },
+      { name: '--json', type: 'boolean', description: 'JSON output' },
+    ] },
   { name: 'snapshot', description: 'Save/load flow replay snapshots for fast re-execution. save extracts coordinates, timing, and commands from a successful run. load returns a replay plan so agents skip UI exploration and use exact coordinates.', args: [{ name: 'sub', required: true, description: 'save or load' }],
     flags: [
       { name: '--flow', type: 'path', description: 'Flow YAML path' },

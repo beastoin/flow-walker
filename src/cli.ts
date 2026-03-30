@@ -63,6 +63,7 @@ async function main(): Promise<void> {
       'flow': { type: 'string' }, 'run-id': { type: 'string' }, 'run-dir': { type: 'string' },
       'status': { type: 'string' }, 'mode': { type: 'string' }, 'events': { type: 'string' },
       'recheck': { type: 'boolean', default: false }, 'agent-prompt': { type: 'boolean', default: false },
+      'summary': { type: 'boolean', default: false },
       'device': { type: 'string' }, 'resolution': { type: 'string' },
     },
   });
@@ -83,7 +84,7 @@ async function main(): Promise<void> {
     else if (subcommand === 'verify') await handleVerify(values, positionals, json);
     else if (subcommand === 'report') await handleReport(values, positionals, json);
     else if (subcommand === 'push') await handlePush(positionals, json);
-    else if (subcommand === 'get') await handleGet(positionals, json);
+    else if (subcommand === 'get') await handleGet(values, positionals, json);
     else if (subcommand === 'snapshot') handleSnapshotCmd(values, positionals, json);
     else if (subcommand === 'schema') handleSchema(positionals);
     else throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Unknown subcommand: ${subcommand}`, 'Available: walk, record, verify, report, push, get, snapshot, schema');
@@ -260,12 +261,50 @@ async function handlePush(positionals: string[], json: boolean): Promise<void> {
   console.log(json ? JSON.stringify(result) : `Report uploaded. URL: ${result.htmlUrl}`);
   process.exit(0);
 }
-async function handleGet(positionals: string[], json: boolean): Promise<void> {
-  const runId = positionals[1];
-  if (!runId) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run ID is required');
-  if (!/^[A-Za-z0-9_-]{6,20}$/.test(runId)) throw new FlowWalkerError(ErrorCodes.INVALID_INPUT, 'Invalid run ID format');
-  const data = await getRunData(runId, { apiUrl: process.env.FLOW_WALKER_API_URL });
-  console.log(json ? JSON.stringify(data) : JSON.stringify(data, null, 2));
+async function handleGet(values: Record<string, unknown>, positionals: string[], json: boolean): Promise<void> {
+  const runIdOrDir = positionals[1];
+  const runDir = values['run-dir'] as string | undefined;
+  const summary = values['summary'] as boolean;
+  if (!runIdOrDir && !runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run ID or --run-dir is required');
+
+  let data: Record<string, unknown>;
+  if (runDir || (runIdOrDir && existsSync(runIdOrDir))) {
+    // Local read: from run directory
+    const dir = runDir || runIdOrDir!;
+    const runJsonPath = findRunFile(dir, 'run.json');
+    if (!existsSync(runJsonPath)) throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${dir}`, 'Run verify first to generate run.json');
+    data = JSON.parse(readFileSync(runJsonPath, 'utf-8'));
+  } else {
+    // Remote read: from hosted service
+    const runId = runIdOrDir!;
+    if (!/^[A-Za-z0-9_-]{6,20}$/.test(runId)) throw new FlowWalkerError(ErrorCodes.INVALID_INPUT, 'Invalid run ID format');
+    data = await getRunData(runId, { apiUrl: process.env.FLOW_WALKER_API_URL }) as Record<string, unknown>;
+  }
+
+  // --summary: compact output without logTimeline and step events
+  if (summary) {
+    const compact: Record<string, unknown> = {
+      schema: data.schema, flow: data.flow, mode: data.mode, result: data.result,
+      automatedResult: data.automatedResult, agentResult: data.agentResult,
+      duration: data.duration, hasVideo: data.hasVideo, htmlUrl: data.htmlUrl,
+      screenshots: data.screenshots,
+    };
+    if (Array.isArray(data.steps)) {
+      compact.steps = (data.steps as Array<Record<string, unknown>>).map(s => ({
+        id: s.id, name: s.name, do: s.do, claim: s.claim, outcome: s.outcome,
+        automated: s.automated, agent: s.agent,
+      }));
+    }
+    if (Array.isArray(data.logTimeline)) compact.logTimelineCount = (data.logTimeline as unknown[]).length;
+    if (Array.isArray(data.issues)) compact.issues = data.issues;
+    data = compact;
+  }
+
+  const output = json ? JSON.stringify(data) : JSON.stringify(data, null, 2);
+  // Use write + drain to avoid truncation on large JSON (process.exit before flush)
+  if (!process.stdout.write(output + '\n')) {
+    await new Promise<void>(resolve => process.stdout.once('drain', resolve));
+  }
   process.exit(0);
 }
 function handleSnapshotCmd(values: Record<string, unknown>, positionals: string[], json: boolean): void {

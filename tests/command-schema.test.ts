@@ -49,9 +49,11 @@ describe('COMMAND_SCHEMAS', () => {
     const schema = getCommandSchema('schema');
     assert.ok(schema); assert.ok(schema.args.some(a => a.name === 'command' && !a.required));
   });
-  it('get schema has required run-id arg', () => {
+  it('get schema has run-id arg and --run-dir/--summary flags', () => {
     const get = getCommandSchema('get');
-    assert.ok(get); assert.ok(get.args.some(a => a.name === 'run-id' && a.required));
+    assert.ok(get); assert.ok(get.args.some(a => a.name === 'run-id'));
+    assert.ok(get.flags.some(f => f.name === '--run-dir'));
+    assert.ok(get.flags.some(f => f.name === '--summary'));
   });
   it('boolean flags have no default', () => {
     for (const schema of COMMAND_SCHEMAS) {
