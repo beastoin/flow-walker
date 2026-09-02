@@ -1,14 +1,16 @@
 {
   "name": "flow-walker-cli",
-  "version": "0.5.11",
+  "version": "0.5.15",
   "description": "Agent-first flow testing for Flutter and desktop apps via agent-flutter and agent-swift",
   "type": "module",
   "bin": {
-    "flow-walker": "./src/cli.ts"
+    "flow-walker": "./dist/cli.js"
   },
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "build": "tsc --noEmit"
+    "build": "tsc -p tsconfig.build.json && sed -i '1s|.*|#!/usr/bin/env node|' dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "engines": {
     "node": ">=22"

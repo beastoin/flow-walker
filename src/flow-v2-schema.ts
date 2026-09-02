@@ -12,7 +12,14 @@ export function validateFlowV2(flow: FlowV2): void {
     if (!step.id) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Every v2 step must have an id');
     if (ids.has(step.id)) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, `Duplicate step id: ${step.id}`);
     ids.add(step.id);
-    if (!step.do) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, `Step ${step.id} must have a do: instruction`);
+    if (!step.do) {
+      const stepObj = step as unknown as Record<string, unknown>;
+      const unknownKeys = Object.keys(stepObj).filter(k => !['id', 'name', 'do', 'claim', 'anchors', 'expect', 'judge', 'evidence', 'note', 'verify'].includes(k));
+      const hint = unknownKeys.length > 0
+        ? `. Found unknown keys: ${unknownKeys.join(', ')}. Did you mean "judge" instead of "agent_prompts"?`
+        : '';
+      throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, `Step ${step.id} must have a do: instruction${hint}`, 'Each step needs do: with a natural-language action. See: flow-walker schema record');
+    }
     const stepObj = step as unknown as Record<string, unknown>;
     for (const key of LEGACY_ACTION_KEYS) {
       if (key in stepObj && stepObj[key] !== undefined && stepObj[key] !== '') {

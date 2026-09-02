@@ -23,11 +23,11 @@ describe('findRunFile', () => {
     const result = findRunFile(d, 'report.html');
     assert.equal(result, join(d, '20260330T110000Z-report.html'));
   });
-  it('prefers fixed name over timestamped variants', () => {
+  it('prefers latest timestamped over fixed name', () => {
     const d = mkdtempSync(join(tmpdir(), 'fw-rf-'));
-    writeFileSync(join(d, 'run.json'), 'fixed');
+    writeFileSync(join(d, 'run.json'), 'stale-fixed');
     writeFileSync(join(d, '20260330T100000Z-run.json'), 'timestamped');
-    assert.equal(findRunFile(d, 'run.json'), join(d, 'run.json'));
+    assert.equal(findRunFile(d, 'run.json'), join(d, '20260330T100000Z-run.json'));
   });
   it('falls back to fixed path when no match found', () => {
     const d = mkdtempSync(join(tmpdir(), 'fw-rf-'));

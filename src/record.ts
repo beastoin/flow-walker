@@ -12,7 +12,7 @@ import type { ReplayPlan } from './snapshot.ts';
 export type Platform = 'mobile' | 'desktop';
 export interface StepRecipe { id: string; name?: string; events: string[]; }
 export interface RecordInitOptions { flowPath: string; outputDir: string; runId?: string; noVideo?: boolean; device?: string; platform?: Platform; }
-export interface RecordInitResult { id: string; dir: string; video?: boolean; replay?: ReplayPlan; recipe?: StepRecipe[]; evidence?: string[]; }
+export interface RecordInitResult { id: string; dir: string; video?: boolean; replay?: ReplayPlan; recipe?: StepRecipe[]; evidence?: string[]; warnings?: string[]; }
 
 export function recordInit(opts: RecordInitOptions): RecordInitResult {
   const id = opts.runId || randomBytes(5).toString('base64url').slice(0, 10);
@@ -25,6 +25,7 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
 
   // Start video recording (platform-aware)
   let videoStarted = false;
+  const initWarnings: string[] = [];
   if (!opts.noVideo) {
     if (platform === 'desktop') {
       // macOS: use ffmpeg avfoundation via Terminal.app (has Screen Recording TCC)
@@ -45,7 +46,12 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
             videoStarted = true;
           }
         }
-      } catch { /* ffmpeg/Terminal not available — skip video */ }
+        if (!videoStarted) {
+          initWarnings.push('Desktop video failed — ffmpeg/avfoundation not available or Screen Recording TCC not granted. Use --no-video to suppress.');
+        }
+      } catch {
+        initWarnings.push('Desktop video failed — ffmpeg/Terminal.app not available. Use --no-video to suppress.');
+      }
     } else {
       // Mobile: use ADB screenrecord
       try {
@@ -91,7 +97,7 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
     `All files in the run directory use timestamp-based names. flow-walker synthesizes the timeline from *.log files.`,
   ];
 
-  return { id, dir: runDir, video: videoStarted, replay, recipe, evidence };
+  return { id, dir: runDir, video: videoStarted, replay, recipe, evidence, ...(initWarnings.length > 0 ? { warnings: initWarnings } : {}) };
 }
 
 /** Convert ISO timestamp to compact sortable prefix: 2026-03-29T04:12:00.123Z → 20260329T041200123Z */

@@ -24,6 +24,10 @@ const TS_EXTRACTORS: Array<{ re: RegExp; toIso: (m: string) => string }> = [
   { re: /(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?=[^\d.,])/, toIso: m => m.replace(' ', 'T') + 'Z' },
   // Logcat: 03-30 10:00:01.200 (no year — inferred from current year)
   { re: /(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)/, toIso: m => `${new Date().getFullYear()}-${m.replace(' ', 'T')}Z` },
+  // Bracketed time-only: [01:07:06.148] or [01:07:06] (no date — inferred from today)
+  { re: /\[(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]/, toIso: m => `${new Date().toISOString().slice(0, 11)}${m}Z` },
+  // Bare time-only: 01:07:06.148 (no date — inferred from today, must have ms to avoid false positives)
+  { re: /(?:^|[\s|])(\d{2}:\d{2}:\d{2}\.\d+)/, toIso: m => `${new Date().toISOString().slice(0, 11)}${m}Z` },
 ];
 
 const LEVEL_DETECTORS: Array<{ re: RegExp; level: string }> = [

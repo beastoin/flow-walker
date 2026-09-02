@@ -30,8 +30,10 @@ function printUsage(): void {
 
 Usage:
   flow-walker walk [options]                  Auto-explore app and generate YAML flows
-  flow-walker record <init|stream|finish>     Record agent execution events
-  flow-walker verify <flow.yaml> [options]    Verify events against flow expectations
+  flow-walker record init --flow <yaml> [--output-dir ./runs/ --no-video --json]
+  flow-walker record stream --run-id <id> --run-dir <dir> [--events <ndjson> --json]
+  flow-walker record finish --run-id <id> --run-dir <dir> --status pass --flow <yaml> [--json]
+  flow-walker verify <flow.yaml> --run-dir <dir> [--mode audit --json]
   flow-walker report <run-dir>                Generate HTML report from run results
   flow-walker push <run-dir>                  Upload report and return shareable URL
   flow-walker get <run-id>                    Fetch run data from hosted service
@@ -83,7 +85,7 @@ async function main(): Promise<void> {
     else if (subcommand === 'record') await handleRecord(values, positionals, json, agentType);
     else if (subcommand === 'verify') await handleVerify(values, positionals, json);
     else if (subcommand === 'report') await handleReport(values, positionals, json);
-    else if (subcommand === 'push') await handlePush(positionals, json);
+    else if (subcommand === 'push') await handlePush(positionals, json, values);
     else if (subcommand === 'get') await handleGet(values, positionals, json);
     else if (subcommand === 'snapshot') handleSnapshotCmd(values, positionals, json);
     else if (subcommand === 'schema') handleSchema(positionals);
@@ -136,6 +138,7 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
       else msg += '\n  Replay: no snapshot — explore mode (snapshot will be saved on pass)';
       if (result.recipe) msg += `\n  Recipe: ${result.recipe.length} steps with event sequences`;
       if (result.evidence) msg += `\n  Evidence: capture app.log and backend.log in run dir for machine-synthesized timeline`;
+      if (result.warnings) for (const w of result.warnings) msg += `\n  ⚠ ${w}`;
       console.log(msg);
     }
     process.exit(0);
@@ -223,8 +226,8 @@ async function handleVerify(values: Record<string, unknown>, positionals: string
   process.exit(result.result === 'pass' ? 0 : result.result === 'fail' ? 1 : 2);
 }
 async function handleReport(values: Record<string, unknown>, positionals: string[], json: boolean): Promise<void> {
-  const runDir = positionals[1];
-  if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required');
+  const runDir = positionals[1] || (values['run-dir'] as string | undefined);
+  if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required. Usage: flow-walker report <run-dir> or flow-walker report --run-dir <path>');
   validateOutputDir(runDir);
   const runJsonPath = findRunFile(runDir, 'run.json');
   if (!existsSync(runJsonPath)) throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${runDir}`, 'Run "flow-walker verify <flow.yaml> --run-dir <dir>" first to generate run.json');
@@ -253,9 +256,9 @@ function validateV2RunJson(raw: Record<string, unknown>, runDir: string): void {
     );
   }
 }
-async function handlePush(positionals: string[], json: boolean): Promise<void> {
-  const runDir = positionals[1];
-  if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required');
+async function handlePush(positionals: string[], json: boolean, values: Record<string, unknown>): Promise<void> {
+  const runDir = positionals[1] || (values['run-dir'] as string | undefined);
+  if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required. Usage: flow-walker push <run-dir> or flow-walker push --run-dir <path>');
   validateOutputDir(runDir);
   const result = await pushReport(runDir, { apiUrl: process.env.FLOW_WALKER_API_URL });
   console.log(json ? JSON.stringify(result) : `Report uploaded. URL: ${result.htmlUrl}`);

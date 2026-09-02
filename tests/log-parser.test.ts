@@ -71,6 +71,32 @@ describe('parseLogFile', () => {
     assert.equal(lines[0].level, 'error');
   });
 
+  it('parses bracketed time-only format [HH:MM:SS.mmm]', () => {
+    const content = '[01:07:06.148] [app] WebSocket connected\n[01:07:07.200] [bridge] Message received';
+    const lines = parseLogFile(content);
+    assert.equal(lines.length, 2);
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal(lines[0].ts, `${today}T01:07:06.148Z`);
+    assert.ok(lines[0].message.includes('WebSocket connected'));
+    assert.equal(lines[1].ts, `${today}T01:07:07.200Z`);
+  });
+
+  it('parses bracketed time-only without ms [HH:MM:SS]', () => {
+    const content = '[10:30:00] Starting bridge';
+    const lines = parseLogFile(content);
+    assert.equal(lines.length, 1);
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal(lines[0].ts, `${today}T10:30:00Z`);
+  });
+
+  it('parses bare time-only with ms', () => {
+    const content = '01:07:06.148 Connected to device';
+    const lines = parseLogFile(content);
+    assert.equal(lines.length, 1);
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal(lines[0].ts, `${today}T01:07:06.148Z`);
+  });
+
   it('skips lines without timestamps', () => {
     const content = `2026-03-30T10:00:01Z First line
 This line has no timestamp

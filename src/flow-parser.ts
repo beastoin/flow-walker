@@ -110,6 +110,7 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
       const ji: Partial<FlowV2Judge> = {};
       if (rest.startsWith('prompt:')) ji.prompt = pv(rest.slice(7));
       else if (rest.startsWith('id:')) ji.id = pv(rest.slice(3));
+      else if (rest.startsWith('screenshot:')) ji.screenshot = pv(rest.slice(11));
       (currentStep.judge as FlowV2Judge[]).push(ji as FlowV2Judge);
     } else if (inJudge && !t.startsWith('- ')) {
       const last = (currentStep.judge as FlowV2Judge[])?.at(-1);

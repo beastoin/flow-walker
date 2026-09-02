@@ -153,6 +153,8 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
     const agentPrompts: AgentPrompt[] = [];
     if (step.judge) {
       for (const j of step.judge) {
+        // Skip incomplete judge entries (no prompt or id — likely parser artifact)
+        if (!j.prompt && !j.id) continue;
         agentPrompts.push({
           id: j.id,
           prompt: j.prompt,
