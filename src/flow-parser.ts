@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { FlowV2, FlowV2Step, FlowV2Expect, FlowV2Evidence, FlowV2Judge } from './types.ts';
-import { FlowWalkerError, ErrorCodes } from './errors.ts';
+import { AgentFlowError, ErrorCodes } from './errors.ts';
 import { validateFlowV2 } from './flow-v2-schema.ts';
 /** Resolve YAML multi-line scalars (> folded, | literal) into single-line values */
 function resolveMultiLineScalars(rawLines: string[]): string[] {
@@ -146,8 +146,8 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
   }
   if (currentStep.id) flow.steps!.push(currentStep as unknown as FlowV2Step);
   if (!flow.version) flow.version = 2;
-  if (!flow.name) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow missing required field: name');
-  if (!flow.steps || flow.steps.length === 0) throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow has no steps');
+  if (!flow.name) throw new AgentFlowError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow missing required field: name');
+  if (!flow.steps || flow.steps.length === 0) throw new AgentFlowError(ErrorCodes.FLOW_PARSE_ERROR, 'Flow has no steps');
   const result = flow as FlowV2;
   validateFlowV2(result);
   return result;
@@ -155,7 +155,7 @@ export function parseFlowV2(yamlContent: string): FlowV2 {
 export function parseFlowFile(filePath: string): FlowV2 {
   const content = readFileSync(filePath, 'utf-8');
   if (/^version:\s*2\s*$/m.test(content)) return parseFlowV2(content);
-  throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'Only v2 flows are supported (must have version: 2)');
+  throw new AgentFlowError(ErrorCodes.FLOW_PARSE_ERROR, 'Only v2 flows are supported (must have version: 2)');
 }
 function pv(raw: string): string {
   let val = raw.trim();

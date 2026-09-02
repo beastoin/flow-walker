@@ -1,4 +1,4 @@
-# CLAUDE.md — Working on flow-walker
+# CLAUDE.md — Working on agent-flow
 
 ## Publish rule
 
@@ -8,7 +8,7 @@ Do not edit this repo directly — add a new phase program in autoloop instead.
 
 ## Project overview
 
-`flow-walker` is a Node.js CLI that auto-explores Flutter apps, executes YAML test flows, and generates HTML reports.
+`agent-flow` is a Node.js CLI that auto-explores Flutter apps, executes YAML test flows, and generates HTML reports.
 It builds on [agent-flutter](https://github.com/beastoin/agent-flutter) for all device interaction.
 
 **Eight commands:**
@@ -44,7 +44,7 @@ It builds on [agent-flutter](https://github.com/beastoin/agent-flutter) for all 
 - `src/snapshot.ts` — save/load replay snapshots
 - `src/run-schema.ts` — run ID generation
 - `src/types.ts` — shared type definitions
-- `src/errors.ts` — structured error handling (FlowWalkerError)
+- `src/errors.ts` — structured error handling (AgentFlowError)
 - `src/validate.ts` — input validation (paths, URIs, control chars)
 - `src/command-schema.ts` — command schema for agent discovery
 - `src/push.ts` — report upload to hosted service

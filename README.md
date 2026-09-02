@@ -1,23 +1,23 @@
-# flow-walker
+# agent-flow
 
 Auto-explore apps, execute YAML test flows, and publish shareable HTML reports.
 
-flow-walker is the **flow layer** — it defines, discovers, records, verifies, and reports on E2E flows. It uses [agent-flutter](https://github.com/beastoin/agent-flutter) and [agent-swift](https://github.com/beastoin/agent-swift) as **transport layers** for device interaction.
+agent-flow is the **flow layer** — it defines, discovers, records, verifies, and reports on E2E flows. It uses [agent-flutter](https://github.com/beastoin/agent-flutter) and [agent-swift](https://github.com/beastoin/agent-swift) as **transport layers** for device interaction.
 
 ```
-flow-walker (flows + reporting)
+agent-flow (flows + reporting)
     │
 agent-flutter / agent-swift (device control)
     │
 Android / iOS / macOS devices
 ```
 
-**Live reports:** [flow-walker.beastoin.workers.dev](https://flow-walker.beastoin.workers.dev)
+**Live reports:** [agent-flow.beastoin.workers.dev](https://agent-flow.beastoin.workers.dev)
 
 ## Install
 
 ```bash
-npm install -g flow-walker-cli
+npm install -g agent-flow-cli
 ```
 
 Requires Node.js >= 22, [agent-flutter](https://github.com/beastoin/agent-flutter) in PATH, and a Flutter app running in debug mode.
@@ -41,26 +41,26 @@ The primary workflow for E2E testing. An agent executes flow steps and streams e
 
 ```bash
 # 1. Initialize — creates run directory and unique run ID
-flow-walker record init --flow flows/login.yaml --no-video --json
+agent-flow record init --flow flows/login.yaml --no-video --json
 # => {"id":"P-tnB_sgKA","dir":"runs/P-tnB_sgKA","video":false}
 
 # 2. Stream events — pipe NDJSON via stdin (one event per line)
 echo '{"type":"step.start","step_id":"S1","name":"Open app"}' | \
-  flow-walker record stream --run-id P-tnB_sgKA --run-dir runs/P-tnB_sgKA
+  agent-flow record stream --run-id P-tnB_sgKA --run-dir runs/P-tnB_sgKA
 
 # 3. Finish — finalizes recording, auto-saves snapshot
-flow-walker record finish --run-id P-tnB_sgKA --run-dir runs/P-tnB_sgKA \
+agent-flow record finish --run-id P-tnB_sgKA --run-dir runs/P-tnB_sgKA \
   --status pass --flow flows/login.yaml --json
 
 # 4. Verify — produces run.json from events + flow expectations
-flow-walker verify flows/login.yaml --run-dir runs/P-tnB_sgKA --json > runs/P-tnB_sgKA/run.json
+agent-flow verify flows/login.yaml --run-dir runs/P-tnB_sgKA --json > runs/P-tnB_sgKA/run.json
 
 # 5. Report — generates self-contained HTML
-flow-walker report runs/P-tnB_sgKA --json
+agent-flow report runs/P-tnB_sgKA --json
 
 # 6. Push — uploads and returns shareable URL
-flow-walker push runs/P-tnB_sgKA --json
-# => {"id":"P-tnB_sgKA","htmlUrl":"https://flow-walker.beastoin.workers.dev/runs/P-tnB_sgKA.html"}
+agent-flow push runs/P-tnB_sgKA --json
+# => {"id":"P-tnB_sgKA","htmlUrl":"https://agent-flow.beastoin.workers.dev/runs/P-tnB_sgKA.html"}
 ```
 
 ### Event types
@@ -146,9 +146,9 @@ steps:
 Discovers app screens by pressing every interactive element via BFS.
 
 ```bash
-flow-walker walk --max-depth 3 --output-dir ./flows/ --json
-flow-walker walk --dry-run       # snapshot without pressing
-flow-walker walk --skip-connect  # use existing agent-flutter session
+agent-flow walk --max-depth 3 --output-dir ./flows/ --json
+agent-flow walk --dry-run       # snapshot without pressing
+agent-flow walk --skip-connect  # use existing agent-flutter session
 ```
 
 Safety: walk avoids destructive elements by default (`delete`, `sign out`, `remove`, `reset`, etc.). Customize with `--blocklist`.
@@ -159,12 +159,12 @@ After a successful run, `record finish` auto-saves a snapshot next to the flow Y
 
 ```bash
 # On next record init, snapshot is loaded automatically
-flow-walker record init --flow flows/login.yaml --json
+agent-flow record init --flow flows/login.yaml --json
 # => {"id":"...","dir":"...","replay":{"mode":"replay","steps":{...}}}
 
 # Manual save/load
-flow-walker snapshot save --flow flows/login.yaml --run-dir runs/abc --json
-flow-walker snapshot load --flow flows/login.yaml --json
+agent-flow snapshot save --flow flows/login.yaml --run-dir runs/abc --json
+agent-flow snapshot load --flow flows/login.yaml --json
 ```
 
 When `replay.mode` is `"replay"`, agents use `replay.steps[id].center` coordinates for cached steps and only do full exploration for `replay.verifySteps` (steps marked `verify: true`).
@@ -172,7 +172,7 @@ When `replay.mode` is `"replay"`, agents use `replay.steps[id].center` coordinat
 ## Verify modes
 
 ```bash
-flow-walker verify flow.yaml --run-dir runs/abc --mode balanced --json
+agent-flow verify flow.yaml --run-dir runs/abc --mode balanced --json
 ```
 
 | Mode | Description |
@@ -183,19 +183,19 @@ flow-walker verify flow.yaml --run-dir runs/abc --mode balanced --json
 
 ## Hosted reports
 
-Reports are hosted at [flow-walker.beastoin.workers.dev](https://flow-walker.beastoin.workers.dev).
+Reports are hosted at [agent-flow.beastoin.workers.dev](https://agent-flow.beastoin.workers.dev).
 
 ```bash
 # Push report
-flow-walker push runs/abc --json
-# => {"id":"abc","url":"https://flow-walker.beastoin.workers.dev/runs/abc","htmlUrl":"...","expiresAt":"..."}
+agent-flow push runs/abc --json
+# => {"id":"abc","url":"https://agent-flow.beastoin.workers.dev/runs/abc","htmlUrl":"...","expiresAt":"..."}
 
 # Fetch run data (JSON)
-flow-walker get abc --json
-curl https://flow-walker.beastoin.workers.dev/runs/abc
+agent-flow get abc --json
+curl https://agent-flow.beastoin.workers.dev/runs/abc
 
 # View report (HTML)
-open https://flow-walker.beastoin.workers.dev/runs/abc.html
+open https://agent-flow.beastoin.workers.dev/runs/abc.html
 ```
 
 Reports expire after 30 days. Re-pushing updates the expiry.
@@ -206,7 +206,7 @@ The `verify` command produces `run.json` in `VerifyResult` format. The `report` 
 
 ```json
 {
-  "schema": "flow-walker.run.v3",
+  "schema": "agent-flow.run.v3",
   "flow": "conversations",
   "mode": "balanced",
   "result": "pass",
@@ -239,7 +239,7 @@ Key fields: top-level `result` (`pass`|`fail`|`unverified`), per-step `outcome` 
 
 ## Agent-friendly design
 
-- **Schema introspection** — `flow-walker schema` returns versioned JSON with typed args/flags
+- **Schema introspection** — `agent-flow schema` returns versioned JSON with typed args/flags
 - **Structured errors** — `{code, message, hint, diagnosticId}` in JSON
 - **Input hardening** — path traversal, control chars, URI format validated
 - **TTY-aware JSON** — `--no-json` > `--json` > `FLOW_WALKER_JSON=1` > TTY auto-detect

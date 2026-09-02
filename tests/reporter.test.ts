@@ -10,7 +10,7 @@ import type { VerifyResult } from '../src/verify.ts';
 // Helper to create minimal VerifyResult with defaults for new fields
 function makeResult(partial: Record<string, unknown>): VerifyResult {
   return {
-    schema: 'flow-walker.run.v3',
+    schema: 'agent-flow.run.v3',
     automatedResult: 'pass',
     agentResult: 'pass',
     ...partial,
@@ -93,7 +93,7 @@ describe('buildHtmlV2', () => {
   it('embeds JSON report data', () => {
     const data = makeResult({
       flow: 'embed-test', mode: 'audit', result: 'pass' as const,
-      schema: 'flow-walker.run.v3',
+      schema: 'agent-flow.run.v3',
       automatedResult: 'pass' as const,
       agentResult: 'pass' as const,
       steps: [{
@@ -111,7 +111,7 @@ describe('buildHtmlV2', () => {
     assert.ok(match, 'should have embedded JSON script tag');
     const parsed = JSON.parse(match![1]);
     assert.equal(parsed.flow, 'embed-test');
-    assert.equal(parsed.schema, 'flow-walker.run.v3');
+    assert.equal(parsed.schema, 'agent-flow.run.v3');
   });
 
   it('displays claim as step headline', () => {

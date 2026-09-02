@@ -13,14 +13,14 @@ export const ErrorCodes = {
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];
 
-export class FlowWalkerError extends Error {
+export class AgentFlowError extends Error {
   code: ErrorCode;
   hint?: string;
   diagnosticId: string;
 
   constructor(code: ErrorCode, message: string, hint?: string) {
     super(message);
-    this.name = 'FlowWalkerError';
+    this.name = 'AgentFlowError';
     this.code = code;
     this.hint = hint;
     this.diagnosticId = randomUUID().slice(0, 8);
@@ -39,13 +39,13 @@ export class FlowWalkerError extends Error {
 }
 
 export function formatError(err: unknown, json: boolean): string {
-  if (err instanceof FlowWalkerError) {
+  if (err instanceof AgentFlowError) {
     if (json) return JSON.stringify(err.toJSON());
     const parts = [`Error [${err.code}:${err.diagnosticId}]: ${err.message}`];
     if (err.hint) parts.push(`Hint: ${err.hint}`);
     return parts.join('\n');
   }
-  const wrapped = new FlowWalkerError(ErrorCodes.COMMAND_FAILED, String(err));
+  const wrapped = new AgentFlowError(ErrorCodes.COMMAND_FAILED, String(err));
   if (json) return JSON.stringify(wrapped.toJSON());
   return `Error [${wrapped.code}:${wrapped.diagnosticId}]: ${wrapped.message}`;
 }

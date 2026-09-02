@@ -12,7 +12,7 @@ import type { VerifyResult } from './verify.ts';
 import { saveSnapshot, loadSnapshot } from './snapshot.ts';
 import { detectAgentType } from './agent-bridge.ts';
 import { generateReportV2 } from './reporter.ts';
-import { FlowWalkerError, ErrorCodes, formatError } from './errors.ts';
+import { AgentFlowError, ErrorCodes, formatError } from './errors.ts';
 import { validateFlowPath, validateOutputDir, validateUri, validateBundleId, validateRunDir } from './validate.ts';
 import { COMMAND_SCHEMAS, SCHEMA_VERSION, getCommandSchema, getSchemaEnvelope } from './command-schema.ts';
 import { findRunFile } from './run-files.ts';
@@ -22,23 +22,23 @@ import { pushReport, getRunData } from './push.ts';
 const DEFAULT_BLOCKLIST = 'delete,sign out,remove,reset,unpair,logout,clear all';
 function resolveJsonMode(flags: Record<string, unknown>): boolean {
   if (flags['no-json']) return false; if (flags['json']) return true;
-  if (process.env.FLOW_WALKER_JSON === '1') return true;
+  if (process.env.AGENT_FLOW_JSON === '1') return true;
   if (!process.stdout.isTTY) return true; return false;
 }
 function printUsage(): void {
-  console.log(`flow-walker — Agent-first flow testing for Flutter and desktop apps
+  console.log(`agent-flow — Agent-first flow testing for Flutter and desktop apps
 
 Usage:
-  flow-walker walk [options]                  Auto-explore app and generate YAML flows
-  flow-walker record init --flow <yaml> [--output-dir ./runs/ --no-video --json]
-  flow-walker record stream --run-id <id> --run-dir <dir> [--events <ndjson> --json]
-  flow-walker record finish --run-id <id> --run-dir <dir> --status pass --flow <yaml> [--json]
-  flow-walker verify <flow.yaml> --run-dir <dir> [--mode audit --json]
-  flow-walker report <run-dir>                Generate HTML report from run results
-  flow-walker push <run-dir>                  Upload report and return shareable URL
-  flow-walker get <run-id>                    Fetch run data from hosted service
-  flow-walker snapshot <save|load>             Save/load flow replay snapshots
-  flow-walker schema [command]                Show command schema for agent discovery
+  agent-flow walk [options]                  Auto-explore app and generate YAML flows
+  agent-flow record init --flow <yaml> [--output-dir ./runs/ --no-video --json]
+  agent-flow record stream --run-id <id> --run-dir <dir> [--events <ndjson> --json]
+  agent-flow record finish --run-id <id> --run-dir <dir> --status pass --flow <yaml> [--json]
+  agent-flow verify <flow.yaml> --run-dir <dir> [--mode audit --json]
+  agent-flow report <run-dir>                Generate HTML report from run results
+  agent-flow push <run-dir>                  Upload report and return shareable URL
+  agent-flow get <run-id>                    Fetch run data from hosted service
+  agent-flow snapshot <save|load>             Save/load flow replay snapshots
+  agent-flow schema [command]                Show command schema for agent discovery
 
 Transport:
   --agent flutter|swift     Agent transport (default: auto-detect from --agent-path)
@@ -71,11 +71,11 @@ async function main(): Promise<void> {
   });
   const subcommand = positionals[0];
   const json = resolveJsonMode(values);
-  const agentPath = (values['agent-path'] as string | undefined) ?? (values['agent-flutter-path'] as string | undefined) ?? process.env.FLOW_WALKER_AGENT_PATH ?? 'agent-flutter';
+  const agentPath = (values['agent-path'] as string | undefined) ?? (values['agent-flutter-path'] as string | undefined) ?? process.env.AGENT_FLOW_AGENT_PATH ?? 'agent-flutter';
   const agentTypeFlag = values['agent'] as string | undefined;
-  const agentType: AgentType = agentTypeFlag === 'swift' || agentTypeFlag === 'flutter' ? agentTypeFlag : (process.env.FLOW_WALKER_AGENT as AgentType | undefined) ?? detectAgentType(agentPath);
-  const dryRun = (values['dry-run'] as boolean) || process.env.FLOW_WALKER_DRY_RUN === '1';
-  if (values.version) { console.log(json ? JSON.stringify({ version: PKG_VERSION, schemaVersion: SCHEMA_VERSION }) : `flow-walker ${PKG_VERSION} (schema ${SCHEMA_VERSION})`); process.exit(0); }
+  const agentType: AgentType = agentTypeFlag === 'swift' || agentTypeFlag === 'flutter' ? agentTypeFlag : (process.env.AGENT_FLOW_AGENT as AgentType | undefined) ?? detectAgentType(agentPath);
+  const dryRun = (values['dry-run'] as boolean) || process.env.AGENT_FLOW_DRY_RUN === '1';
+  if (values.version) { console.log(json ? JSON.stringify({ version: PKG_VERSION, schemaVersion: SCHEMA_VERSION }) : `agent-flow ${PKG_VERSION} (schema ${SCHEMA_VERSION})`); process.exit(0); }
   if (values.help || !subcommand) {
     if (json && subcommand) { const schema = getCommandSchema(subcommand); if (schema) { console.log(JSON.stringify(schema)); process.exit(0); } }
     printUsage(); process.exit(subcommand ? 0 : 2);
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     else if (subcommand === 'get') await handleGet(values, positionals, json);
     else if (subcommand === 'snapshot') handleSnapshotCmd(values, positionals, json);
     else if (subcommand === 'schema') handleSchema(positionals);
-    else throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Unknown subcommand: ${subcommand}`, 'Available: walk, record, verify, report, push, get, snapshot, schema');
+    else throw new AgentFlowError(ErrorCodes.INVALID_ARGS, `Unknown subcommand: ${subcommand}`, 'Available: walk, record, verify, report, push, get, snapshot, schema');
   } catch (err) { console.error(formatError(err, json)); process.exit(2); }
 }
 async function handleWalk(values: Record<string, unknown>, _positionals: string[], json: boolean, agentPath: string, agentType: AgentType, dryRun: boolean): Promise<void> {
@@ -104,8 +104,8 @@ async function handleWalk(values: Record<string, unknown>, _positionals: string[
   }
   if (values['app-uri']) validateUri(values['app-uri'] as string);
   if (values['bundle-id']) validateBundleId(values['bundle-id'] as string);
-  if (!values['app-uri'] && !values['bundle-id'] && !values['skip-connect']) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Either --app-uri, --bundle-id, --skip-connect, or --name is required');
-  const outputDir = (values['output-dir'] as string | undefined) ?? process.env.FLOW_WALKER_OUTPUT_DIR ?? './flows/';
+  if (!values['app-uri'] && !values['bundle-id'] && !values['skip-connect']) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'Either --app-uri, --bundle-id, --skip-connect, or --name is required');
+  const outputDir = (values['output-dir'] as string | undefined) ?? process.env.AGENT_FLOW_OUTPUT_DIR ?? './flows/';
   validateOutputDir(outputDir);
   const config: WalkerConfig = {
     appUri: values['app-uri'] as string | undefined, bundleId: values['bundle-id'] as string | undefined,
@@ -119,10 +119,10 @@ async function handleWalk(values: Record<string, unknown>, _positionals: string[
 }
 async function handleRecord(values: Record<string, unknown>, positionals: string[], json: boolean, agentType: AgentType): Promise<void> {
   const sub = positionals[1];
-  if (!sub || !['init', 'stream', 'finish'].includes(sub)) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record requires: init, stream, or finish');
+  if (!sub || !['init', 'stream', 'finish'].includes(sub)) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'record requires: init, stream, or finish');
   if (sub === 'init') {
     const flowPath = values['flow'] as string;
-    if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record init requires --flow <path>');
+    if (!flowPath) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'record init requires --flow <path>');
     validateFlowPath(flowPath);
     const outputDir = (values['output-dir'] as string | undefined) ?? './runs/';
     const noVideo = values['no-video'] as boolean;
@@ -145,8 +145,8 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
   }
   if (sub === 'stream') {
     const runId = values['run-id'] as string; const runDir = values['run-dir'] as string;
-    if (!runId) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record stream requires --run-id');
-    if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record stream requires --run-dir');
+    if (!runId) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'record stream requires --run-id');
+    if (!runDir) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'record stream requires --run-dir');
     validateOutputDir(runDir);
     const eventsFlag = values['events'] as string | undefined;
     let lines: string[];
@@ -165,8 +165,8 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
   if (sub === 'finish') {
     const runId = values['run-id'] as string; const runDir = values['run-dir'] as string;
     const status = (values['status'] as string) || 'pass';
-    if (!runId) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-id');
-    if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-dir');
+    if (!runId) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-id');
+    if (!runDir) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'record finish requires --run-dir');
     validateOutputDir(runDir);
     const finishDevice = process.env.AGENT_FLUTTER_DEVICE || undefined;
     const flowPath = values['flow'] as string | undefined;
@@ -196,17 +196,17 @@ async function handleRecord(values: Record<string, unknown>, positionals: string
 }
 async function handleVerify(values: Record<string, unknown>, positionals: string[], json: boolean): Promise<void> {
   const flowPath = positionals[1];
-  if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Flow YAML path is required');
+  if (!flowPath) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'Flow YAML path is required');
   validateFlowPath(flowPath);
   const runDir = values['run-dir'] as string;
-  if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'verify requires --run-dir');
+  if (!runDir) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'verify requires --run-dir');
   validateOutputDir(runDir);
   const mode = (values['mode'] as string || 'balanced') as 'strict' | 'balanced' | 'audit';
-  if (!['strict', 'balanced', 'audit'].includes(mode)) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Invalid mode: ${mode}`);
+  if (!['strict', 'balanced', 'audit'].includes(mode)) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, `Invalid mode: ${mode}`);
   const parsed = parseFlowFile(flowPath);
   let flow: FlowV2;
   if ('version' in parsed && parsed.version === 2) flow = parsed as FlowV2;
-  else throw new FlowWalkerError(ErrorCodes.FLOW_PARSE_ERROR, 'verify requires a v2 flow (version: 2)');
+  else throw new AgentFlowError(ErrorCodes.FLOW_PARSE_ERROR, 'verify requires a v2 flow (version: 2)');
   const recheck = values['recheck'] as boolean;
   const agentPrompt = values['agent-prompt'] as boolean;
   if (agentPrompt) {
@@ -227,10 +227,10 @@ async function handleVerify(values: Record<string, unknown>, positionals: string
 }
 async function handleReport(values: Record<string, unknown>, positionals: string[], json: boolean): Promise<void> {
   const runDir = positionals[1] || (values['run-dir'] as string | undefined);
-  if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required. Usage: flow-walker report <run-dir> or flow-walker report --run-dir <path>');
+  if (!runDir) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'Run directory is required. Usage: agent-flow report <run-dir> or agent-flow report --run-dir <path>');
   validateOutputDir(runDir);
   const runJsonPath = findRunFile(runDir, 'run.json');
-  if (!existsSync(runJsonPath)) throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${runDir}`, 'Run "flow-walker verify <flow.yaml> --run-dir <dir>" first to generate run.json');
+  if (!existsSync(runJsonPath)) throw new AgentFlowError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${runDir}`, 'Run "agent-flow verify <flow.yaml> --run-dir <dir>" first to generate run.json');
   const raw = JSON.parse(readFileSync(runJsonPath, 'utf-8'));
   validateV2RunJson(raw, runDir);
   const data = raw as VerifyResult;
@@ -249,18 +249,18 @@ function validateV2RunJson(raw: Record<string, unknown>, runDir: string): void {
     if (!hasMode) missing.push('mode');
     if (!hasOutcome) missing.push('steps[].outcome');
     if (!hasDo) missing.push('steps[].do');
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.INVALID_INPUT,
       `run.json is not v2 format (missing: ${missing.join(', ')}). Do not hand-craft run.json — use the verify command.`,
-      `Run "flow-walker verify <flow.yaml> --run-dir ${runDir} --mode audit" to generate a valid v2 run.json from events.jsonl`,
+      `Run "agent-flow verify <flow.yaml> --run-dir ${runDir} --mode audit" to generate a valid v2 run.json from events.jsonl`,
     );
   }
 }
 async function handlePush(positionals: string[], json: boolean, values: Record<string, unknown>): Promise<void> {
   const runDir = positionals[1] || (values['run-dir'] as string | undefined);
-  if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run directory is required. Usage: flow-walker push <run-dir> or flow-walker push --run-dir <path>');
+  if (!runDir) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'Run directory is required. Usage: agent-flow push <run-dir> or agent-flow push --run-dir <path>');
   validateOutputDir(runDir);
-  const result = await pushReport(runDir, { apiUrl: process.env.FLOW_WALKER_API_URL });
+  const result = await pushReport(runDir, { apiUrl: process.env.AGENT_FLOW_API_URL });
   console.log(json ? JSON.stringify(result) : `Report uploaded. URL: ${result.htmlUrl}`);
   process.exit(0);
 }
@@ -268,20 +268,20 @@ async function handleGet(values: Record<string, unknown>, positionals: string[],
   const runIdOrDir = positionals[1];
   const runDir = values['run-dir'] as string | undefined;
   const summary = values['summary'] as boolean;
-  if (!runIdOrDir && !runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Run ID or --run-dir is required');
+  if (!runIdOrDir && !runDir) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'Run ID or --run-dir is required');
 
   let data: Record<string, unknown>;
   if (runDir || (runIdOrDir && existsSync(runIdOrDir))) {
     // Local read: from run directory
     const dir = runDir || runIdOrDir!;
     const runJsonPath = findRunFile(dir, 'run.json');
-    if (!existsSync(runJsonPath)) throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${dir}`, 'Run verify first to generate run.json');
+    if (!existsSync(runJsonPath)) throw new AgentFlowError(ErrorCodes.FILE_NOT_FOUND, `run.json not found in ${dir}`, 'Run verify first to generate run.json');
     data = JSON.parse(readFileSync(runJsonPath, 'utf-8'));
   } else {
     // Remote read: from hosted service
     const runId = runIdOrDir!;
-    if (!/^[A-Za-z0-9_-]{6,20}$/.test(runId)) throw new FlowWalkerError(ErrorCodes.INVALID_INPUT, 'Invalid run ID format');
-    data = await getRunData(runId, { apiUrl: process.env.FLOW_WALKER_API_URL }) as Record<string, unknown>;
+    if (!/^[A-Za-z0-9_-]{6,20}$/.test(runId)) throw new AgentFlowError(ErrorCodes.INVALID_INPUT, 'Invalid run ID format');
+    data = await getRunData(runId, { apiUrl: process.env.AGENT_FLOW_API_URL }) as Record<string, unknown>;
   }
 
   // --summary: compact output without logTimeline and step events
@@ -312,12 +312,12 @@ async function handleGet(values: Record<string, unknown>, positionals: string[],
 }
 function handleSnapshotCmd(values: Record<string, unknown>, positionals: string[], json: boolean): void {
   const sub = positionals[1];
-  if (!sub || !['save', 'load'].includes(sub)) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot requires: save or load');
+  if (!sub || !['save', 'load'].includes(sub)) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'snapshot requires: save or load');
   if (sub === 'save') {
     const flowPath = values['flow'] as string;
     const runDir = values['run-dir'] as string;
-    if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot save requires --flow <path>');
-    if (!runDir) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot save requires --run-dir <path>');
+    if (!flowPath) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'snapshot save requires --flow <path>');
+    if (!runDir) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'snapshot save requires --run-dir <path>');
     validateFlowPath(flowPath);
     validateOutputDir(runDir);
     const device = (values['device'] as string) || process.env.AGENT_FLUTTER_DEVICE || undefined;
@@ -334,7 +334,7 @@ function handleSnapshotCmd(values: Record<string, unknown>, positionals: string[
   }
   if (sub === 'load') {
     const flowPath = values['flow'] as string;
-    if (!flowPath) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'snapshot load requires --flow <path>');
+    if (!flowPath) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'snapshot load requires --flow <path>');
     validateFlowPath(flowPath);
     const device = (values['device'] as string) || process.env.AGENT_FLUTTER_DEVICE || undefined;
     const plan = loadSnapshot({ flowPath, device });
@@ -348,7 +348,7 @@ function handleSnapshotCmd(values: Record<string, unknown>, positionals: string[
 }
 function handleSchema(positionals: string[]): void {
   const name = positionals[1];
-  if (name) { const schema = getCommandSchema(name); if (!schema) throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, `Unknown command: ${name}`, `Available: ${COMMAND_SCHEMAS.map(s => s.name).join(', ')}`); console.log(JSON.stringify(schema, null, 2)); }
+  if (name) { const schema = getCommandSchema(name); if (!schema) throw new AgentFlowError(ErrorCodes.INVALID_ARGS, `Unknown command: ${name}`, `Available: ${COMMAND_SCHEMAS.map(s => s.name).join(', ')}`); console.log(JSON.stringify(schema, null, 2)); }
   else console.log(JSON.stringify(getSchemaEnvelope(), null, 2));
   process.exit(0);
 }

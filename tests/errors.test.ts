@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { FlowWalkerError, ErrorCodes, formatError } from '../src/errors.ts';
+import { AgentFlowError, ErrorCodes, formatError } from '../src/errors.ts';
 
-describe('FlowWalkerError', () => {
+describe('AgentFlowError', () => {
   it('has code, message, and diagnosticId', () => {
-    const err = new FlowWalkerError(ErrorCodes.INVALID_INPUT, 'bad input');
+    const err = new AgentFlowError(ErrorCodes.INVALID_INPUT, 'bad input');
     assert.equal(err.code, 'INVALID_INPUT');
     assert.equal(err.message, 'bad input');
     assert.equal(typeof err.diagnosticId, 'string');
@@ -12,18 +12,18 @@ describe('FlowWalkerError', () => {
   });
 
   it('includes hint when provided', () => {
-    const err = new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, 'not found', 'check path');
+    const err = new AgentFlowError(ErrorCodes.FILE_NOT_FOUND, 'not found', 'check path');
     assert.equal(err.hint, 'check path');
   });
 
   it('generates unique diagnosticId per instance', () => {
-    const err1 = new FlowWalkerError(ErrorCodes.COMMAND_FAILED, 'a');
-    const err2 = new FlowWalkerError(ErrorCodes.COMMAND_FAILED, 'b');
+    const err1 = new AgentFlowError(ErrorCodes.COMMAND_FAILED, 'a');
+    const err2 = new AgentFlowError(ErrorCodes.COMMAND_FAILED, 'b');
     assert.notEqual(err1.diagnosticId, err2.diagnosticId);
   });
 
   it('toJSON returns structured error envelope', () => {
-    const err = new FlowWalkerError(ErrorCodes.DEVICE_ERROR, 'device gone', 'check adb');
+    const err = new AgentFlowError(ErrorCodes.DEVICE_ERROR, 'device gone', 'check adb');
     const json = err.toJSON();
     assert.equal(json.error.code, 'DEVICE_ERROR');
     assert.equal(json.error.message, 'device gone');
@@ -32,14 +32,14 @@ describe('FlowWalkerError', () => {
   });
 
   it('toJSON omits hint when not provided', () => {
-    const err = new FlowWalkerError(ErrorCodes.COMMAND_FAILED, 'fail');
+    const err = new AgentFlowError(ErrorCodes.COMMAND_FAILED, 'fail');
     const json = err.toJSON();
     assert.equal(json.error.hint, undefined);
     assert.ok(!('hint' in json.error));
   });
 
   it('is instanceof Error', () => {
-    const err = new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'x');
+    const err = new AgentFlowError(ErrorCodes.INVALID_ARGS, 'x');
     assert.ok(err instanceof Error);
   });
 });
@@ -57,8 +57,8 @@ describe('ErrorCodes', () => {
 });
 
 describe('formatError', () => {
-  it('formats FlowWalkerError as JSON', () => {
-    const err = new FlowWalkerError(ErrorCodes.INVALID_INPUT, 'bad', 'fix it');
+  it('formats AgentFlowError as JSON', () => {
+    const err = new AgentFlowError(ErrorCodes.INVALID_INPUT, 'bad', 'fix it');
     const out = formatError(err, true);
     const parsed = JSON.parse(out);
     assert.equal(parsed.error.code, 'INVALID_INPUT');
@@ -67,8 +67,8 @@ describe('formatError', () => {
     assert.ok(parsed.error.diagnosticId);
   });
 
-  it('formats FlowWalkerError as human text', () => {
-    const err = new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, 'missing', 'check path');
+  it('formats AgentFlowError as human text', () => {
+    const err = new AgentFlowError(ErrorCodes.FILE_NOT_FOUND, 'missing', 'check path');
     const out = formatError(err, false);
     assert.ok(out.includes('FILE_NOT_FOUND'));
     assert.ok(out.includes('missing'));

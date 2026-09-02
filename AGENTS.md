@@ -1,8 +1,8 @@
-# flow-walker — Agent Workflow Guide
+# agent-flow — Agent Workflow Guide
 
-## What is flow-walker
+## What is agent-flow
 
-flow-walker is the **flow layer** — it discovers, executes, and reports on app flows.
+agent-flow is the **flow layer** — it discovers, executes, and reports on app flows.
 It uses [agent-flutter](https://github.com/beastoin/agent-flutter) and [agent-swift](https://github.com/beastoin/agent-swift) as **transport layers** that control specific platforms.
 
 **Six commands:**
@@ -17,27 +17,27 @@ It uses [agent-flutter](https://github.com/beastoin/agent-flutter) and [agent-sw
 
 ```bash
 # 1. Discover available commands
-flow-walker schema                    # → { version, commands: [...] }
-flow-walker schema run                # → args, flags with types, exit codes
+agent-flow schema                    # → { version, commands: [...] }
+agent-flow schema run                # → args, flags with types, exit codes
 
 # 2. Dry-run to verify flow resolves
-flow-walker run flow.yaml --dry-run   # → per-step resolved/unresolved + reasons
+agent-flow run flow.yaml --dry-run   # → per-step resolved/unresolved + reasons
 
 # 3. Execute
-flow-walker run flow.yaml --json      # → run.json with unique run ID
+agent-flow run flow.yaml --json      # → run.json with unique run ID
 
 # 4. Report
-flow-walker report ./run-output/<run-id>/
+agent-flow report ./run-output/<run-id>/
 
 # 5. Share (hosted)
-flow-walker push ./run-output/<run-id>/ --json  # → { id, url, htmlUrl, expiresAt }
+agent-flow push ./run-output/<run-id>/ --json  # → { id, url, htmlUrl, expiresAt }
 
 # 6. Retrieve run data later
-flow-walker get 25h7afGwBK --json               # → run.json content
+agent-flow get 25h7afGwBK --json               # → run.json content
 
 # Version check
-flow-walker --version                            # → flow-walker 0.1.0
-flow-walker --version --json                     # → {"version":"0.1.0"}
+agent-flow --version                            # → agent-flow 0.1.0
+agent-flow --version --json                     # → {"version":"0.1.0"}
 ```
 
 ## Prerequisites
@@ -49,7 +49,7 @@ flow-walker --version --json                     # → {"version":"0.1.0"}
 
 ## Run IDs
 
-Every `flow-walker run` generates a unique **10-char base64url ID** (e.g. `25h7afGwBK`).
+Every `agent-flow run` generates a unique **10-char base64url ID** (e.g. `25h7afGwBK`).
 
 - Output goes to `<output-dir>/<run-id>/` — multiple runs never overwrite
 - `run.json` includes `"id": "25h7afGwBK"` as top-level field
@@ -62,14 +62,14 @@ Every `flow-walker run` generates a unique **10-char base64url ID** (e.g. `25h7a
 
 ```bash
 agent-flutter connect ws://127.0.0.1:38047/abc=/ws
-flow-walker walk --skip-connect --max-depth 3 --output-dir ./flows/
+agent-flow walk --skip-connect --max-depth 3 --output-dir ./flows/
 # Output: YAML flows + _nav-graph.json
 ```
 
 ### Execute a flow
 
 ```bash
-flow-walker run flows/tab-navigation.yaml --output-dir ./results/
+agent-flow run flows/tab-navigation.yaml --output-dir ./results/
 # => Run ID: 25h7afGwBK
 # => Output: ./results/25h7afGwBK/run.json, recording.mp4, step-*.png, device.log
 ```
@@ -77,7 +77,7 @@ flow-walker run flows/tab-navigation.yaml --output-dir ./results/
 ### Generate report
 
 ```bash
-flow-walker report ./results/25h7afGwBK/
+agent-flow report ./results/25h7afGwBK/
 # Output: report.html (self-contained, can be shared)
 ```
 
@@ -85,7 +85,7 @@ flow-walker report ./results/25h7afGwBK/
 
 ```bash
 for flow in flows/*.yaml; do
-  flow-walker run "$flow" --output-dir ./results/ --json
+  agent-flow run "$flow" --output-dir ./results/ --json
 done
 # Each run gets its own subdirectory by run ID
 ```
@@ -148,7 +148,7 @@ done
       "args": [{ "name": "flow", "required": true, "type": "path", "description": "..." }],
       "flags": [{ "name": "--json", "type": "boolean", "description": "..." }],
       "exitCodes": { "0": "all steps pass", "1": "one or more steps fail", "2": "error" },
-      "examples": ["flow-walker run flows/tab-navigation.yaml"]
+      "examples": ["agent-flow run flows/tab-navigation.yaml"]
     }
   ]
 }
@@ -159,8 +159,8 @@ done
 ```json
 {
   "id": "25h7afGwBK",
-  "url": "https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK",
-  "htmlUrl": "https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK.html",
+  "url": "https://agent-flow.beastoin.workers.dev/runs/25h7afGwBK",
+  "htmlUrl": "https://agent-flow.beastoin.workers.dev/runs/25h7afGwBK.html",
   "expiresAt": "2026-04-11T13:22:12.070Z"
 }
 ```
@@ -182,7 +182,7 @@ Commands that produce structured output declare their fields via `outputShape`:
 }
 ```
 
-Commands with `outputShape`: `run`, `push`, `get`. Use `flow-walker schema <cmd>` to inspect.
+Commands with `outputShape`: `run`, `push`, `get`. Use `agent-flow schema <cmd>` to inspect.
 
 ### Agent-readable run data
 
@@ -190,11 +190,11 @@ After push, structured run data is available. URLs are agent-first — JSON by d
 
 ```bash
 # JSON (default) — for agents
-curl https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK
-curl https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK.json
+curl https://agent-flow.beastoin.workers.dev/runs/25h7afGwBK
+curl https://agent-flow.beastoin.workers.dev/runs/25h7afGwBK.json
 
 # HTML — for humans
-open https://flow-walker.beastoin.workers.dev/runs/25h7afGwBK.html
+open https://agent-flow.beastoin.workers.dev/runs/25h7afGwBK.html
 ```
 
 Returns run.json structure (without local file paths like video/screenshot filenames).
@@ -202,9 +202,9 @@ Returns run.json structure (without local file paths like video/screenshot filen
 CLI equivalent:
 
 ```bash
-flow-walker get 25h7afGwBK          # pretty-printed JSON
-flow-walker get 25h7afGwBK --json   # compact JSON (pipe-friendly)
-flow-walker get 25h7afGwBK | jq '.steps[] | select(.status=="fail")'
+agent-flow get 25h7afGwBK          # pretty-printed JSON
+agent-flow get 25h7afGwBK --json   # compact JSON (pipe-friendly)
+agent-flow get 25h7afGwBK | jq '.steps[] | select(.status=="fail")'
 ```
 
 ### Structured error (on failure)
@@ -293,7 +293,7 @@ Precedence: CLI flag > env var > default.
 | `FLOW_WALKER_AGENT_PATH` | Path to agent-flutter binary | `agent-flutter` |
 | `FLOW_WALKER_DRY_RUN` | Enable dry-run mode | `0` |
 | `FLOW_WALKER_JSON` | Force JSON output | auto (TTY detection) |
-| `FLOW_WALKER_API_URL` | Hosted service URL for push/get | `https://flow-walker.beastoin.workers.dev` |
+| `FLOW_WALKER_API_URL` | Hosted service URL for push/get | `https://agent-flow.beastoin.workers.dev` |
 | `AGENT_FLUTTER_DEVICE` | ADB device ID | auto-detect |
 
 JSON output precedence: `--no-json` > `--json` > `FLOW_WALKER_JSON=1` > TTY auto-detect (non-TTY defaults to JSON).

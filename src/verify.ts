@@ -215,7 +215,7 @@ export function verifyRun(opts: VerifyOptions): VerifyResult {
   if (hasFailedStep) { result = 'fail'; }
   else if (hasChecks && allAutoNoEvidence && allAgentPending) { result = 'unverified'; }
   else { result = 'pass'; }
-  const verifyResult: VerifyResult = { schema: 'flow-walker.run.v3', flow: flow.name, mode, result, automatedResult, agentResult: overallAgent, steps, issues };
+  const verifyResult: VerifyResult = { schema: 'agent-flow.run.v3', flow: flow.name, mode, result, automatedResult, agentResult: overallAgent, steps, issues };
   // Timestamp the output filename
   let outputPath = opts.outputPath;
   if (!outputPath) {

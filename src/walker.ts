@@ -4,7 +4,7 @@ import { filterSafe } from './safety.ts';
 import { NavigationGraph } from './graph.ts';
 import { generateFlowsV2, writeFlowsV2 } from './yaml-writer.ts';
 import { AgentBridge } from './agent-bridge.ts';
-import { FlowWalkerError, ErrorCodes } from './errors.ts';
+import { AgentFlowError, ErrorCodes } from './errors.ts';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -37,7 +37,7 @@ export async function walk(config: WalkerConfig): Promise<WalkResult> {
     } else if (config.bundleId) {
       bridge.connectBundle(config.bundleId);
     } else {
-      throw new FlowWalkerError(ErrorCodes.INVALID_ARGS, 'Either --app-uri or --bundle-id is required', 'Run: flow-walker schema walk');
+      throw new AgentFlowError(ErrorCodes.INVALID_ARGS, 'Either --app-uri or --bundle-id is required', 'Run: agent-flow schema walk');
     }
   }
 

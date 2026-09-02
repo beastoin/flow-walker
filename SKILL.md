@@ -1,16 +1,16 @@
 ---
-name: flow-walker
-description: Execute E2E flow tests using flow-walker CLI. Covers 3 use cases -- (1) auto-discover app screens via BFS walk, (2) record, verify, report, and push a YAML flow with two-tier verification, (3) replay a flow fast using snapshots. Use when an agent must operate flow-walker against Flutter or macOS desktop apps through agent-flutter or agent-swift, must emit or consume structured JSON/NDJSON, must stream record events correctly, or must preserve replay data for fast reruns.
+name: agent-flow
+description: Execute E2E flow tests using agent-flow CLI. Covers 3 use cases -- (1) auto-discover app screens via BFS walk, (2) record, verify, report, and push a YAML flow with two-tier verification, (3) replay a flow fast using snapshots. Use when an agent must operate agent-flow against Flutter or macOS desktop apps through agent-flutter or agent-swift, must emit or consume structured JSON/NDJSON, must stream record events correctly, or must preserve replay data for fast reruns.
 ---
 
-# flow-walker
+# agent-flow
 
 ## Start Here
 
-- Require `node >= 22`, `flow-walker-cli >= 0.5.4`, and `agent-flutter-cli` in `PATH`.
-- Pass `--json` on every `flow-walker` command. Parse JSON or NDJSON only.
+- Require `node >= 22`, `agent-flow-cli >= 0.5.4`, and `agent-flutter-cli` in `PATH`.
+- Pass `--json` on every `agent-flow` command. Parse JSON or NDJSON only.
 - Treat exit codes as contract: `0` success, `1` flow failure, `2` error or unverified result.
-- Query the live CLI surface before guessing: `flow-walker schema --json` or `flow-walker schema <command>`.
+- Query the live CLI surface before guessing: `agent-flow schema --json` or `agent-flow schema <command>`.
 - Use positional `agent-flutter` commands: `agent-flutter press @e3`, `agent-flutter press 540 1200`, `agent-flutter screenshot path.webp`.
 - Read [references/flow-yaml-v2.md](references/flow-yaml-v2.md) before writing or repairing a flow.
 - Read [references/record-pipeline.md](references/record-pipeline.md) and [references/event-types.md](references/event-types.md) before streaming events.
@@ -21,15 +21,15 @@ Use `walk` when the app structure is unknown and the goal is to generate starter
 
 ```bash
 agent-flutter connect
-flow-walker walk --skip-connect --output-dir ./flows --json
+agent-flow walk --skip-connect --output-dir ./flows --json
 ```
 
 Use one of `--skip-connect`, `--app-uri`, or `--bundle-id` unless using `--name` to scaffold.
 
 ```bash
-flow-walker walk --app-uri ws://127.0.0.1:12345/ws --max-depth 3 --json
-flow-walker walk --bundle-id com.example.app --blocklist "delete,logout" --json
-flow-walker walk --name login-flow --output ./flows/login-flow.yaml --json
+agent-flow walk --app-uri ws://127.0.0.1:12345/ws --max-depth 3 --json
+agent-flow walk --bundle-id com.example.app --blocklist "delete,logout" --json
+agent-flow walk --name login-flow --output ./flows/login-flow.yaml --json
 ```
 
 Expect NDJSON events during exploration. The stream includes `walk:start`, `screen`, `edge`, `skip`, `log`, and a final `result`.
@@ -45,12 +45,12 @@ Use medium freedom here:
 Use low freedom here. Follow the pipeline exactly:
 
 ```bash
-INIT=$(flow-walker record init --flow ./flows/login.yaml --output-dir ./runs --no-video --json)
-flow-walker record stream --run-id "$RUN_ID" --run-dir "$RUN_DIR" --json < events.jsonl
-flow-walker record finish --run-id "$RUN_ID" --run-dir "$RUN_DIR" --status pass --flow ./flows/login.yaml --json
-flow-walker verify ./flows/login.yaml --run-dir "$RUN_DIR" --mode audit --json
-flow-walker report "$RUN_DIR" --json
-flow-walker push "$RUN_DIR" --json
+INIT=$(agent-flow record init --flow ./flows/login.yaml --output-dir ./runs --no-video --json)
+agent-flow record stream --run-id "$RUN_ID" --run-dir "$RUN_DIR" --json < events.jsonl
+agent-flow record finish --run-id "$RUN_ID" --run-dir "$RUN_DIR" --status pass --flow ./flows/login.yaml --json
+agent-flow verify ./flows/login.yaml --run-dir "$RUN_DIR" --mode audit --json
+agent-flow report "$RUN_DIR" --json
+agent-flow push "$RUN_DIR" --json
 ```
 
 Apply these rules:
@@ -71,8 +71,8 @@ Read these files before executing the pipeline:
 Use snapshots to rerun known flows faster after at least one passing recorded run.
 
 ```bash
-flow-walker snapshot load --flow ./flows/login.yaml --json
-flow-walker snapshot save --flow ./flows/login.yaml --run-dir "$RUN_DIR" --json
+agent-flow snapshot load --flow ./flows/login.yaml --json
+agent-flow snapshot save --flow ./flows/login.yaml --run-dir "$RUN_DIR" --json
 ```
 
 Prefer the automatic path first:

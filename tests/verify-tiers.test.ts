@@ -34,7 +34,7 @@ describe('two-tier verification', () => {
     ].join('\n'));
     const result = verifyRun({ flow: basicFlow, runDir: tmpDir, mode: 'balanced' });
     assert.equal(result.result, 'pass');
-    assert.equal(result.schema, 'flow-walker.run.v3');
+    assert.equal(result.schema, 'agent-flow.run.v3');
     for (const step of result.steps) {
       assert.ok(step.automated, 'step should have automated field');
       assert.ok(step.agent, 'step should have agent field');

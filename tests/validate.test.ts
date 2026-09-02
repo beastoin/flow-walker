@@ -10,7 +10,7 @@ import {
   validateBundleId,
   validateRunDir,
 } from '../src/validate.ts';
-import { FlowWalkerError } from '../src/errors.ts';
+import { AgentFlowError } from '../src/errors.ts';
 
 const tmpDir = join(import.meta.dirname!, '..', '.test-tmp-validate');
 
@@ -24,15 +24,15 @@ describe('rejectControlChars', () => {
   });
 
   it('rejects null byte', () => {
-    assert.throws(() => rejectControlChars('bad\x00input', 'test'), FlowWalkerError);
+    assert.throws(() => rejectControlChars('bad\x00input', 'test'), AgentFlowError);
   });
 
   it('rejects bell character', () => {
-    assert.throws(() => rejectControlChars('bad\x07input', 'test'), FlowWalkerError);
+    assert.throws(() => rejectControlChars('bad\x07input', 'test'), AgentFlowError);
   });
 
   it('rejects backspace', () => {
-    assert.throws(() => rejectControlChars('bad\x08input', 'test'), FlowWalkerError);
+    assert.throws(() => rejectControlChars('bad\x08input', 'test'), AgentFlowError);
   });
 
   it('error has INVALID_INPUT code', () => {
@@ -40,7 +40,7 @@ describe('rejectControlChars', () => {
       rejectControlChars('bad\x00input', 'Path');
       assert.fail('should throw');
     } catch (err) {
-      assert.ok(err instanceof FlowWalkerError);
+      assert.ok(err instanceof AgentFlowError);
       assert.equal(err.code, 'INVALID_INPUT');
       assert.ok(err.message.includes('Path'));
     }
@@ -67,11 +67,11 @@ describe('validateFlowPath', () => {
   });
 
   it('rejects non-yaml extension', () => {
-    assert.throws(() => validateFlowPath('/tmp/test.json'), FlowWalkerError);
+    assert.throws(() => validateFlowPath('/tmp/test.json'), AgentFlowError);
   });
 
   it('rejects path traversal', () => {
-    assert.throws(() => validateFlowPath('../../../etc/passwd.yaml'), FlowWalkerError);
+    assert.throws(() => validateFlowPath('../../../etc/passwd.yaml'), AgentFlowError);
   });
 
   it('rejects nonexistent file', () => {
@@ -79,13 +79,13 @@ describe('validateFlowPath', () => {
       validateFlowPath('/tmp/definitely-not-here-xyz.yaml');
       assert.fail('should throw');
     } catch (err) {
-      assert.ok(err instanceof FlowWalkerError);
+      assert.ok(err instanceof AgentFlowError);
       assert.equal(err.code, 'FILE_NOT_FOUND');
     }
   });
 
   it('rejects control characters', () => {
-    assert.throws(() => validateFlowPath('/tmp/bad\x00.yaml'), FlowWalkerError);
+    assert.throws(() => validateFlowPath('/tmp/bad\x00.yaml'), AgentFlowError);
   });
 });
 
@@ -96,11 +96,11 @@ describe('validateOutputDir', () => {
   });
 
   it('rejects path traversal', () => {
-    assert.throws(() => validateOutputDir('../../etc'), FlowWalkerError);
+    assert.throws(() => validateOutputDir('../../etc'), AgentFlowError);
   });
 
   it('rejects control characters', () => {
-    assert.throws(() => validateOutputDir('/tmp/bad\x00dir'), FlowWalkerError);
+    assert.throws(() => validateOutputDir('/tmp/bad\x00dir'), AgentFlowError);
   });
 });
 
@@ -114,15 +114,15 @@ describe('validateUri', () => {
   });
 
   it('rejects http:// URI', () => {
-    assert.throws(() => validateUri('http://127.0.0.1:38047'), FlowWalkerError);
+    assert.throws(() => validateUri('http://127.0.0.1:38047'), AgentFlowError);
   });
 
   it('rejects empty string', () => {
-    assert.throws(() => validateUri(''), FlowWalkerError);
+    assert.throws(() => validateUri(''), AgentFlowError);
   });
 
   it('rejects control characters', () => {
-    assert.throws(() => validateUri('ws://bad\x00host'), FlowWalkerError);
+    assert.throws(() => validateUri('ws://bad\x00host'), AgentFlowError);
   });
 
   it('error has hint with example', () => {
@@ -130,7 +130,7 @@ describe('validateUri', () => {
       validateUri('http://wrong');
       assert.fail('should throw');
     } catch (err) {
-      assert.ok(err instanceof FlowWalkerError);
+      assert.ok(err instanceof AgentFlowError);
       assert.ok(err.hint?.includes('ws://'));
     }
   });
@@ -143,15 +143,15 @@ describe('validateBundleId', () => {
   });
 
   it('rejects single-segment ID', () => {
-    assert.throws(() => validateBundleId('myapp'), FlowWalkerError);
+    assert.throws(() => validateBundleId('myapp'), AgentFlowError);
   });
 
   it('rejects control characters', () => {
-    assert.throws(() => validateBundleId('com.bad\x00.app'), FlowWalkerError);
+    assert.throws(() => validateBundleId('com.bad\x00.app'), AgentFlowError);
   });
 
   it('rejects starting with number', () => {
-    assert.throws(() => validateBundleId('123.example.app'), FlowWalkerError);
+    assert.throws(() => validateBundleId('123.example.app'), AgentFlowError);
   });
 });
 
@@ -169,7 +169,7 @@ describe('validateRunDir', () => {
       validateRunDir('/tmp/no-such-dir-xyz');
       assert.fail('should throw');
     } catch (err) {
-      assert.ok(err instanceof FlowWalkerError);
+      assert.ok(err instanceof AgentFlowError);
       assert.equal(err.code, 'FILE_NOT_FOUND');
     }
   });
@@ -180,7 +180,7 @@ describe('validateRunDir', () => {
       validateRunDir(tmpDir);
       assert.fail('should throw');
     } catch (err) {
-      assert.ok(err instanceof FlowWalkerError);
+      assert.ok(err instanceof AgentFlowError);
       assert.equal(err.code, 'FILE_NOT_FOUND');
       assert.ok(err.message.includes('run.json'));
     }
@@ -188,6 +188,6 @@ describe('validateRunDir', () => {
   });
 
   it('rejects path traversal', () => {
-    assert.throws(() => validateRunDir('../../etc'), FlowWalkerError);
+    assert.throws(() => validateRunDir('../../etc'), AgentFlowError);
   });
 });

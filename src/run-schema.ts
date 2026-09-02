@@ -1,4 +1,4 @@
-// Run ID generation for flow-walker
+// Run ID generation for agent-flow
 
 import { randomBytes } from 'node:crypto';
 

@@ -1,4 +1,4 @@
-// Shared types for flow-walker
+// Shared types for agent-flow
 
 /** An interactive element from agent-flutter snapshot */
 export interface SnapshotElement {

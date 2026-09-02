@@ -1,14 +1,14 @@
-// Remote API: upload/retrieve reports and run data from flow-walker hosted service
+// Remote API: upload/retrieve reports and run data from agent-flow hosted service
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { FlowWalkerError, ErrorCodes } from './errors.ts';
+import { AgentFlowError, ErrorCodes } from './errors.ts';
 import { findRunFile } from './run-files.ts';
 
-const DEFAULT_API_URL = 'https://flow-walker.beastoin.workers.dev';
+const DEFAULT_API_URL = 'https://agent-flow.beastoin.workers.dev';
 
 function resolveApiUrl(apiUrl?: string): string {
-  return apiUrl || process.env.FLOW_WALKER_API_URL || DEFAULT_API_URL;
+  return apiUrl || process.env.AGENT_FLOW_API_URL || DEFAULT_API_URL;
 }
 
 export interface PushResult {
@@ -28,10 +28,10 @@ export async function pushReport(
   // Find report.html (supports timestamped filenames)
   const reportPath = findRunFile(runDir, 'report.html');
   if (!existsSync(reportPath)) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.FILE_NOT_FOUND,
       'report.html not found in run directory',
-      'Generate it first: flow-walker report <run-dir>',
+      'Generate it first: agent-flow report <run-dir>',
     );
   }
 
@@ -94,10 +94,10 @@ export async function pushReport(
       body: reportContent,
     });
   } catch (err) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.COMMAND_FAILED,
       `Failed to connect to ${apiUrl}: ${err instanceof Error ? err.message : String(err)}`,
-      `Check your network or set FLOW_WALKER_API_URL`,
+      `Check your network or set AGENT_FLOW_API_URL`,
     );
   }
 
@@ -107,10 +107,10 @@ export async function pushReport(
       const body = await response.json() as { error?: { message?: string } };
       if (body.error?.message) errorMsg = body.error.message;
     } catch { /* ignore */ }
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.COMMAND_FAILED,
       errorMsg,
-      'Try again or check FLOW_WALKER_API_URL',
+      'Try again or check AGENT_FLOW_API_URL',
     );
   }
 
@@ -146,25 +146,25 @@ export async function getRunData(
       headers: { 'Accept': 'application/json' },
     });
   } catch (err) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.COMMAND_FAILED,
       `Failed to connect to ${apiUrl}: ${err instanceof Error ? err.message : String(err)}`,
-      'Check your network or set FLOW_WALKER_API_URL',
+      'Check your network or set AGENT_FLOW_API_URL',
     );
   }
 
   if (!response.ok) {
     if (response.status === 404) {
-      throw new FlowWalkerError(
+      throw new AgentFlowError(
         ErrorCodes.FILE_NOT_FOUND,
         `Run ${runId} not found`,
-        'Check the run ID or push the run first: flow-walker push <run-dir>',
+        'Check the run ID or push the run first: agent-flow push <run-dir>',
       );
     }
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.COMMAND_FAILED,
       `Failed to fetch run (HTTP ${response.status})`,
-      'Try again or check FLOW_WALKER_API_URL',
+      'Try again or check AGENT_FLOW_API_URL',
     );
   }
 

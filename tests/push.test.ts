@@ -75,10 +75,10 @@ describe('pushReport', () => {
     );
   });
 
-  it('uses FLOW_WALKER_API_URL env var when no apiUrl option', async () => {
+  it('uses AGENT_FLOW_API_URL env var when no apiUrl option', async () => {
     writeFileSync(join(tempDir, 'report.html'), '<html>test</html>');
-    const original = process.env.FLOW_WALKER_API_URL;
-    process.env.FLOW_WALKER_API_URL = 'http://127.0.0.1:1';
+    const original = process.env.AGENT_FLOW_API_URL;
+    process.env.AGENT_FLOW_API_URL = 'http://127.0.0.1:1';
     try {
       await assert.rejects(
         () => pushReport(tempDir),
@@ -90,9 +90,9 @@ describe('pushReport', () => {
       );
     } finally {
       if (original !== undefined) {
-        process.env.FLOW_WALKER_API_URL = original;
+        process.env.AGENT_FLOW_API_URL = original;
       } else {
-        delete process.env.FLOW_WALKER_API_URL;
+        delete process.env.AGENT_FLOW_API_URL;
       }
     }
   });
@@ -114,8 +114,8 @@ describe('pushReport', () => {
 
   it('apiUrl option takes precedence over env var', async () => {
     writeFileSync(join(tempDir, 'report.html'), '<html>test</html>');
-    const original = process.env.FLOW_WALKER_API_URL;
-    process.env.FLOW_WALKER_API_URL = 'http://127.0.0.1:2';
+    const original = process.env.AGENT_FLOW_API_URL;
+    process.env.AGENT_FLOW_API_URL = 'http://127.0.0.1:2';
     try {
       await assert.rejects(
         () => pushReport(tempDir, { apiUrl: 'http://127.0.0.1:3' }),
@@ -128,9 +128,9 @@ describe('pushReport', () => {
       );
     } finally {
       if (original !== undefined) {
-        process.env.FLOW_WALKER_API_URL = original;
+        process.env.AGENT_FLOW_API_URL = original;
       } else {
-        delete process.env.FLOW_WALKER_API_URL;
+        delete process.env.AGENT_FLOW_API_URL;
       }
     }
   });

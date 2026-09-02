@@ -3,7 +3,7 @@ import { join, basename } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
 import { validateEvent } from './event-schema.ts';
-import { FlowWalkerError, ErrorCodes } from './errors.ts';
+import { AgentFlowError, ErrorCodes } from './errors.ts';
 import { loadSnapshot, saveSnapshot } from './snapshot.ts';
 import { parseFlowFile } from './flow-parser.ts';
 import type { FlowV2 } from './types.ts';
@@ -94,7 +94,7 @@ export function recordInit(opts: RecordInitOptions): RecordInitResult {
   const evidence = [
     `Save app logs to ${runDir}/${tsNow}-app.log (timestamped lines, machine-parsed into timeline)`,
     `Save backend logs to ${runDir}/${tsNow}-backend.log (timestamped lines, machine-parsed into timeline)`,
-    `All files in the run directory use timestamp-based names. flow-walker synthesizes the timeline from *.log files.`,
+    `All files in the run directory use timestamp-based names. agent-flow synthesizes the timeline from *.log files.`,
   ];
 
   return { id, dir: runDir, video: videoStarted, replay, recipe, evidence, ...(initWarnings.length > 0 ? { warnings: initWarnings } : {}) };
@@ -319,5 +319,5 @@ function findDir(runDir: string, runId: string): string {
   const candidate = join(runDir, runId);
   if (existsSync(join(candidate, 'run.meta.json'))) return candidate;
   if (existsSync(join(runDir, 'run.meta.json'))) return runDir;
-  throw new FlowWalkerError(ErrorCodes.FILE_NOT_FOUND, `Run directory not found for ${runId}`);
+  throw new AgentFlowError(ErrorCodes.FILE_NOT_FOUND, `Run directory not found for ${runId}`);
 }

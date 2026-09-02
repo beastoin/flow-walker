@@ -1,15 +1,15 @@
-// Input validation for flow-walker
+// Input validation for agent-flow
 // "Agents hallucinate. Build like it." — validate all inputs before dispatch.
 
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { findRunFile } from './run-files.ts';
-import { FlowWalkerError, ErrorCodes } from './errors.ts';
+import { AgentFlowError, ErrorCodes } from './errors.ts';
 
 /** Reject strings containing ASCII control characters (except \n and \t) */
 export function rejectControlChars(str: string, fieldName: string): void {
   if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(str)) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.INVALID_INPUT,
       `${fieldName} contains invalid control characters`,
       `Remove ASCII control characters (\\n and \\t are allowed)`,
@@ -21,7 +21,7 @@ export function rejectControlChars(str: string, fieldName: string): void {
 function rejectPathTraversal(path: string, fieldName: string): void {
   const normalized = resolve(path);
   if (path.includes('..')) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.INVALID_INPUT,
       `${fieldName} contains path traversal (..)`,
       `Use an absolute path or a path relative to cwd without ..`,
@@ -35,15 +35,15 @@ export function validateFlowPath(path: string): void {
   rejectPathTraversal(path, 'Flow path');
 
   if (!path.endsWith('.yaml') && !path.endsWith('.yml')) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.INVALID_INPUT,
       `Flow path must end in .yaml or .yml: ${path}`,
-      `Provide a YAML flow file. Run: flow-walker schema run`,
+      `Provide a YAML flow file. Run: agent-flow schema run`,
     );
   }
 
   if (!existsSync(path)) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.FILE_NOT_FOUND,
       `Flow file not found: ${path}`,
       `Check the path and try again. Run: ls ${path}`,
@@ -62,7 +62,7 @@ export function validateUri(uri: string): void {
   rejectControlChars(uri, 'URI');
 
   if (!uri.startsWith('ws://') && !uri.startsWith('wss://')) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.INVALID_INPUT,
       `URI must start with ws:// or wss://: ${uri}`,
       `Example: ws://127.0.0.1:38047/abc=/ws`,
@@ -72,7 +72,7 @@ export function validateUri(uri: string): void {
   try {
     new URL(uri);
   } catch {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.INVALID_INPUT,
       `Invalid URI format: ${uri}`,
       `Provide a valid WebSocket URI. Example: ws://127.0.0.1:38047/abc=/ws`,
@@ -85,7 +85,7 @@ export function validateBundleId(id: string): void {
   rejectControlChars(id, 'Bundle ID');
 
   if (!/^[a-zA-Z][a-zA-Z0-9._-]*(\.[a-zA-Z][a-zA-Z0-9._-]*)+$/.test(id)) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.INVALID_INPUT,
       `Invalid bundle ID format: ${id}`,
       `Bundle ID must be reverse-domain format. Example: com.example.app`,
@@ -99,18 +99,18 @@ export function validateRunDir(dir: string): void {
   rejectPathTraversal(dir, 'Run directory');
 
   if (!existsSync(dir)) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.FILE_NOT_FOUND,
       `Run directory not found: ${dir}`,
-      `Provide the output directory from a previous flow-walker record session`,
+      `Provide the output directory from a previous agent-flow record session`,
     );
   }
 
   if (!existsSync(findRunFile(dir, 'run.json'))) {
-    throw new FlowWalkerError(
+    throw new AgentFlowError(
       ErrorCodes.FILE_NOT_FOUND,
       `run.json not found in ${dir}`,
-      `Run "flow-walker verify <flow.yaml> --run-dir ${dir}" to generate run.json`,
+      `Run "agent-flow verify <flow.yaml> --run-dir ${dir}" to generate run.json`,
     );
   }
 }
